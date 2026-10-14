@@ -1,0 +1,1 @@
+# ScoopScope backend application

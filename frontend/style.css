@@ -1,0 +1,560 @@
+/* ============================================================
+   ScoopScope — Design System & Styles
+   ============================================================ */
+
+/* --- Design tokens --- */
+:root {
+    /* Palette – dark theme with teal accent */
+    --bg-primary: #0c0f14;
+    --bg-secondary: #141820;
+    --bg-card: #1a1f2b;
+    --bg-card-hover: #1f2636;
+    --bg-input: #111520;
+
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --border-input: rgba(255, 255, 255, 0.1);
+    --border-focus: #3ecfb4;
+
+    --text-primary: #e8ecf2;
+    --text-secondary: #8f96a3;
+    --text-tertiary: #5c6370;
+    --text-accent: #3ecfb4;
+
+    --accent: #3ecfb4;
+    --accent-dim: rgba(62, 207, 180, 0.12);
+    --accent-hover: #50e8cc;
+
+    --error-bg: rgba(235, 87, 87, 0.1);
+    --error-border: rgba(235, 87, 87, 0.3);
+    --error-text: #f07070;
+
+    --tag-factual-bg: rgba(62, 207, 180, 0.12);
+    --tag-factual-text: #3ecfb4;
+    --tag-opinion-bg: rgba(167, 139, 250, 0.12);
+    --tag-opinion-text: #a78bfa;
+    --tag-prediction-bg: rgba(251, 191, 36, 0.12);
+    --tag-prediction-text: #fbbf24;
+    --tag-causal-bg: rgba(96, 165, 250, 0.12);
+    --tag-causal-text: #60a5fa;
+
+    /* Typography */
+    --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+
+    /* Spacing & radius */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+    --transition: 0.2s ease;
+}
+
+/* --- Reset --- */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+/* --- Base --- */
+html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    font-family: var(--font-family);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+    min-height: 100vh;
+}
+
+/* Subtle animated gradient on background */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(ellipse 60% 50% at 20% 10%, rgba(62, 207, 180, 0.06) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 40% at 80% 80%, rgba(96, 165, 250, 0.04) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* --- Layout --- */
+.app-container {
+    position: relative;
+    z-index: 1;
+    max-width: 740px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* --- Header --- */
+.app-header {
+    text-align: center;
+    padding: 1.5rem 0 0.5rem;
+}
+
+.logo-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.logo-icon {
+    color: var(--accent);
+    display: flex;
+}
+
+.logo-text {
+    font-size: 1.65rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    background: linear-gradient(135deg, var(--text-primary) 40%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.app-tagline {
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+    margin-top: 0.25rem;
+}
+
+/* --- Cards --- */
+.input-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl);
+    padding: 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    transition: border-color var(--transition);
+}
+
+.input-card:focus-within {
+    border-color: rgba(62, 207, 180, 0.2);
+}
+
+/* --- Form elements --- */
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.form-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.label-optional {
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--text-tertiary);
+}
+
+.form-textarea,
+.form-input {
+    background: var(--bg-input);
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-family: var(--font-family);
+    font-size: 0.95rem;
+    padding: 0.75rem 1rem;
+    transition: border-color var(--transition), box-shadow var(--transition);
+    width: 100%;
+}
+
+.form-textarea {
+    resize: vertical;
+    min-height: 120px;
+    line-height: 1.55;
+}
+
+.form-textarea:focus,
+.form-input:focus {
+    outline: none;
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.char-counter {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* --- Button --- */
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: linear-gradient(135deg, var(--accent) 0%, #2db89e 100%);
+    color: #0c0f14;
+    font-family: var(--font-family);
+    font-size: 0.95rem;
+    font-weight: 700;
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: transform var(--transition), box-shadow var(--transition), opacity var(--transition);
+    align-self: flex-start;
+    position: relative;
+}
+
+.btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 20px rgba(62, 207, 180, 0.25);
+}
+
+.btn-primary:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.btn-primary.loading .btn-label {
+    opacity: 0;
+}
+
+.btn-primary.loading .btn-spinner {
+    display: block;
+}
+
+.btn-spinner {
+    display: none;
+    width: 18px;
+    height: 18px;
+    border: 2.5px solid rgba(12, 15, 20, 0.2);
+    border-top-color: #0c0f14;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    position: absolute;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* --- Error banner --- */
+.error-banner {
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    animation: slideDown 0.25s ease-out;
+}
+
+.error-banner.hidden {
+    display: none;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.error-icon {
+    font-size: 1.15rem;
+    line-height: 1;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.error-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.error-body strong {
+    color: var(--error-text);
+    font-size: 0.9rem;
+}
+
+.error-body p {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-top: 0.2rem;
+    word-break: break-word;
+}
+
+.error-dismiss {
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    font-size: 1.3rem;
+    cursor: pointer;
+    padding: 0 0.25rem;
+    line-height: 1;
+    transition: color var(--transition);
+}
+
+.error-dismiss:hover {
+    color: var(--text-primary);
+}
+
+/* --- Results --- */
+.results-section {
+    animation: fadeIn 0.3s ease-out;
+}
+
+.results-section.hidden {
+    display: none;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.results-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.results-status {
+    font-size: 0.78rem;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Submitted context block */
+.submitted-context {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.context-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+    margin-bottom: 0.4rem;
+}
+
+.submitted-text {
+    color: var(--text-secondary);
+    font-size: 0.88rem;
+    line-height: 1.55;
+    border-left: 3px solid var(--border-input);
+    padding-left: 0.75rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.submitted-url-row {
+    margin-top: 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.submitted-url-row.hidden {
+    display: none;
+}
+
+.submitted-url {
+    color: var(--accent);
+    font-size: 0.82rem;
+    text-decoration: none;
+    word-break: break-all;
+}
+
+.submitted-url:hover {
+    text-decoration: underline;
+}
+
+/* Claims list */
+.claims-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.claim-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    transition: border-color var(--transition), transform var(--transition);
+    animation: claimAppear 0.3s ease-out backwards;
+}
+
+.claim-card:hover {
+    border-color: rgba(255, 255, 255, 0.1);
+    transform: translateY(-1px);
+}
+
+@keyframes claimAppear {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.claim-top-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+}
+
+.claim-number {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-tertiary);
+    background: var(--bg-input);
+    padding: 0.15rem 0.5rem;
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+}
+
+.claim-type-tag {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 0.15rem 0.55rem;
+    border-radius: var(--radius-sm);
+}
+
+.claim-type-tag.factual  { background: var(--tag-factual-bg);   color: var(--tag-factual-text); }
+.claim-type-tag.opinion  { background: var(--tag-opinion-bg);   color: var(--tag-opinion-text); }
+.claim-type-tag.prediction { background: var(--tag-prediction-bg); color: var(--tag-prediction-text); }
+.claim-type-tag.causal   { background: var(--tag-causal-bg);    color: var(--tag-causal-text); }
+
+.claim-assertion {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.5;
+    margin-bottom: 0.5rem;
+}
+
+.claim-original {
+    font-size: 0.82rem;
+    color: var(--text-tertiary);
+    font-style: italic;
+    line-height: 1.5;
+    border-left: 2px solid var(--border-input);
+    padding-left: 0.65rem;
+    margin-bottom: 0.6rem;
+}
+
+.claim-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+}
+
+.claim-detail {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.claim-detail .detail-label {
+    color: var(--text-tertiary);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.68rem;
+}
+
+/* --- Results footer --- */
+.results-footer {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    background: var(--accent-dim);
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(62, 207, 180, 0.1);
+}
+
+.evidence-notice {
+    color: var(--accent);
+    font-size: 0.82rem;
+    font-weight: 500;
+    text-align: center;
+}
+
+/* --- Footer --- */
+.app-footer {
+    text-align: center;
+    padding: 1rem 0 0;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.app-footer p {
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+}
+
+/* --- Responsive --- */
+@media (max-width: 540px) {
+    .app-container {
+        padding: 1.25rem 1rem 2rem;
+    }
+    .input-card {
+        padding: 1.25rem;
+    }
+    .claim-card {
+        padding: 1rem;
+    }
+    .results-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.3rem;
+    }
+}
