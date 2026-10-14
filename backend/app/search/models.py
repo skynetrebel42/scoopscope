@@ -109,3 +109,6 @@ class EvidencePassage(BaseModel):
     event_date: str | None = Field(default=None, description="ISO 8601 or None if unknown")
     source_dependence: SourceDependence = Field(default=SourceDependence.UNKNOWN)
     retrieved_at: str = Field(description="ISO 8601 UTC timestamp")
+    start_offset: int | None = Field(default=None, ge=0, description="Start character offset in extracted_text")
+    end_offset: int | None = Field(default=None, ge=0, description="End character offset in extracted_text")
+    relevance_note: str | None = Field(default=None, description="Relevance diagnostic note (e.g. keyword match)")

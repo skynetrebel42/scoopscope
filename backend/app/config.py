@@ -25,6 +25,9 @@ class Settings:
     gemini_api_key: str | None = field(
         default_factory=lambda: os.getenv("GEMINI_API_KEY")
     )
+    serper_api_key: str | None = field(
+        default_factory=lambda: os.getenv("SERPER_API_KEY")
+    )
     gemini_model: str = field(
         default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
     )
@@ -38,10 +41,21 @@ class Settings:
     llm_max_retries: int = field(
         default_factory=lambda: int(os.getenv("LLM_MAX_RETRIES", "2"))
     )
+    # Milestone 2C research limits
+    research_timeout_seconds: int = field(
+        default_factory=lambda: int(os.getenv("RESEARCH_TIMEOUT_SECONDS", "90"))
+    )
+    max_search_queries_per_claim: int = 2
+    max_search_hits_per_query: int = 5
+    max_fetched_pages_per_claim: int = 3
 
     @property
     def has_credentials(self) -> bool:
         return bool(self.gemini_api_key and self.gemini_api_key.strip())
+
+    @property
+    def has_search_credentials(self) -> bool:
+        return bool(self.serper_api_key and self.serper_api_key.strip())
 
 
 # Module-level singleton; import this from other modules.

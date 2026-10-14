@@ -12,6 +12,12 @@ from app.retrieval.safe_fetcher import (
     is_public_ip,
     validate_url_syntax,
 )
+from app.retrieval.passage_extractor import (
+    clean_html_to_text,
+    deduplicate_urls,
+    extract_candidate_passages,
+    verify_passage_provenance,
+)
 
 __all__ = [
     "DEFAULT_MAX_REDIRECTS",
@@ -22,6 +28,10 @@ __all__ = [
     "SafeFetchError",
     "SafeNetworkBackend",
     "SSRFBlockedError",
+    "clean_html_to_text",
+    "deduplicate_urls",
+    "extract_candidate_passages",
     "is_public_ip",
     "validate_url_syntax",
+    "verify_passage_provenance",
 ]

@@ -117,18 +117,30 @@
         const claimsList = document.getElementById("claims-list");
 
         // Mock controller
+        const origFetch = window.fetch ? window.fetch.bind(window) : null;
         let mockQueue = [];
+        let researchMockQueue = [];
         window.fetch = async function (url, opts) {
             if (url === "/api/extract") {
                 const body = JSON.parse(opts.body);
-                // Find matching handler or next handler
                 const handler = mockQueue.shift();
                 if (!handler) {
                     throw new Error("Unexpected fetch call without mock handler: " + body.text);
                 }
                 return handler(body);
             }
-            return origFetch(url, opts);
+            if (url === "/api/research") {
+                const body = JSON.parse(opts.body);
+                const handler = researchMockQueue.shift();
+                if (!handler) {
+                    throw new Error("Unexpected research fetch call without mock handler: " + body.claim_id);
+                }
+                return handler(body);
+            }
+            if (origFetch) {
+                return origFetch(url, opts);
+            }
+            throw new Error("Unexpected fetch in test runner: " + url);
         };
 
         function createSuccessResponse(submittedText, claims) {
@@ -142,6 +154,32 @@
                     claims: claims,
                     extracted_at: new Date().toISOString(),
                     status_message: "Claims extracted. Evidence research not yet performed."
+                })
+            };
+        }
+
+        function createResearchResponse(submissionId, claimId, hits, sources, passages) {
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    submission_id: submissionId,
+                    claim_id: claimId,
+                    queries_used: [
+                        {
+                            query_id: "qry_mock",
+                            claim_id: claimId,
+                            query_text: "Mayor Karen Bass emergency",
+                            query_intent: "primary_assertion",
+                            generated_at: new Date().toISOString()
+                        }
+                    ],
+                    search_hits: hits || [],
+                    retrieved_sources: sources || [],
+                    candidate_passages: passages || [],
+                    researched_at: new Date().toISOString(),
+                    status_message: "Gathered candidate hits; safely retrieved pages in 0.35s.",
+                    completed_in_seconds: 0.35
                 })
             };
         }
@@ -160,6 +198,7 @@
         }
 
         const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+        Element.prototype.scrollIntoView = () => {};
 
         log("Starting Frontend Request-Ordering and State Ownership Test Suite...");
 
@@ -395,6 +434,207 @@
             finishA5();
             await delay(50);
             assert(!submitBtn.classList.contains("loading"), "Loading remains false when stale A finishes");
+
+            // -------------------------------------------------------------
+            // TEST 6: Find sources action, snippet & passage rendering
+            // -------------------------------------------------------------
+            log("\n--- TEST 6: Research action, snippet & passage rendering ---");
+
+            const claimId6 = "claim-m2c-001";
+            mockQueue.push(async (b) => {
+                return createSuccessResponse(b.text, [{
+                    id: claimId6,
+                    original_wording: "Mayor Karen Bass declared an emergency.",
+                    normalized_assertion: "Karen Bass declared an emergency in Los Angeles.",
+                    claim_type: "factual",
+                    explicit_date: null,
+                    explicit_location: "Los Angeles",
+                    explicit_quantity: null,
+                    qualifications: null
+                }]);
+            });
+
+            inputText.value = "Mayor Karen Bass emergency";
+            window.__ScoopScope.executeSubmission();
+            await delay(50);
+
+            const researchBtn6 = document.getElementById(`btn-research-${claimId6}`);
+            assert(Boolean(researchBtn6), "Find sources button exists on claim card");
+
+            researchMockQueue.push(async (b) => {
+                assert(b.claim_id === claimId6, "Research requested with correct claim_id");
+                return createResearchResponse(
+                    b.submission_id,
+                    claimId6,
+                    [
+                        {
+                            result_id: "hit_1",
+                            query_id: "q1",
+                            claim_id: claimId6,
+                            url: "https://example.com/source-one",
+                            title: "Official Statement",
+                            snippet: "Mayor Karen Bass issued an executive declaration.",
+                            rank: 1,
+                            engine: "serper",
+                            is_snippet_only: true
+                        }
+                    ],
+                    [
+                        {
+                            source_id: "src_1",
+                            initial_url: "https://example.com/source-one",
+                            final_url: "https://example.com/source-one",
+                            status: "retrieved",
+                            http_status_code: 200,
+                            resolved_ip: "93.184.216.34",
+                            response_size_bytes: 45000,
+                            redirect_count: 0,
+                            fetched_at: new Date().toISOString(),
+                            extracted_text: "Full document stating Mayor Karen Bass took immediate action."
+                        }
+                    ],
+                    [
+                        {
+                            passage_id: "psg_1",
+                            source_id: "src_1",
+                            claim_id: claimId6,
+                            source_url: "https://example.com/source-one",
+                            exact_passage: "Mayor Karen Bass took immediate action.",
+                            context_surrounding: "Full document stating Mayor Karen Bass took immediate action.",
+                            publication_date: null,
+                            event_date: null,
+                            source_dependence: "unknown",
+                            retrieved_at: new Date().toISOString(),
+                            start_offset: 22,
+                            end_offset: 61,
+                            relevance_note: "Keyword match"
+                        }
+                    ]
+                );
+            });
+
+            researchBtn6.click();
+            await delay(50);
+
+            const researchContainer6 = document.getElementById(`research-container-${claimId6}`);
+            assert(researchBtn6.disabled === false, "Button re-enabled after research completes");
+            assert(researchContainer6.querySelector(".badge-snippet-only") !== null, "Search snippet badge rendered");
+            assert(researchContainer6.textContent.includes("Official Statement"), "Hit title rendered");
+            assert(researchContainer6.textContent.includes("Snippet Only"), "Snippet only disclaimer present");
+            assert(researchContainer6.textContent.includes("Mayor Karen Bass took immediate action."), "Candidate verbatim passage rendered");
+            assert(researchContainer6.textContent.includes("IP: 93.184.216.34"), "Audit IP rendered");
+
+            // -------------------------------------------------------------
+            // TEST 7: Discarding stale research response on re-submission
+            // -------------------------------------------------------------
+            log("\n--- TEST 7: Discarding stale research response on re-submission ---");
+
+            const claimId7 = "claim-m2c-002";
+            mockQueue.push(async (b) => {
+                return createSuccessResponse(b.text, [{
+                    id: claimId7,
+                    original_wording: "Claim for stale testing.",
+                    normalized_assertion: "Claim for stale testing.",
+                    claim_type: "factual",
+                    explicit_date: null,
+                    explicit_location: null,
+                    explicit_quantity: null,
+                    qualifications: null
+                }]);
+            });
+
+            inputText.value = "New text for stale test";
+            window.__ScoopScope.executeSubmission();
+            await delay(50);
+
+            const researchBtn7 = document.getElementById(`btn-research-${claimId7}`);
+            assert(Boolean(researchBtn7), "Claim 7 research button exists");
+
+            // User modifies input text before clicking or while research is pending
+            inputText.value = "Changed input text during research";
+            inputText.dispatchEvent(new Event("input"));
+
+            assert(window.__ScoopScope.activeResearchClaimId === null, "Active research claim reset on input modification");
+
+            // -------------------------------------------------------------
+            // TEST 8: Safe inert text rendering of untrusted external content
+            // -------------------------------------------------------------
+            log("\n--- TEST 8: Safe inert text rendering of untrusted external content ---");
+
+            const maliciousHitTitle = "<scr" + "ipt>window.__XSS_TRIGGERED=true;</scr" + "ipt>Inert Title";
+            const maliciousPassage = "<scr" + "ipt>window.__XSS_TRIGGERED=true;</scr" + "ipt>Inert Passage";
+
+            const claimId8 = "claim-m2c-003";
+            const claimObj8 = {
+                id: claimId8,
+                original_wording: "Malicious probe claim.",
+                normalized_assertion: "Malicious probe claim.",
+                claim_type: "factual",
+                explicit_date: null,
+                explicit_location: null,
+                explicit_quantity: null,
+                qualifications: null
+            };
+
+            mockQueue.push(async (b) => {
+                return createSuccessResponse(b.text, [claimObj8]);
+            });
+
+            inputText.value = "Malicious probe text";
+            window.__ScoopScope.executeSubmission();
+            await delay(50);
+
+            const researchBtn8 = document.getElementById(`btn-research-${claimId8}`);
+            assert(Boolean(researchBtn8), "Claim 8 research button exists");
+
+            researchMockQueue.push(async (b) => {
+                return createResearchResponse(
+                    b.submission_id,
+                    claimId8,
+                    [
+                        {
+                            result_id: "hit_xss",
+                            query_id: "q_xss",
+                            claim_id: claimId8,
+                            url: "https://example.com/xss",
+                            title: maliciousHitTitle,
+                            snippet: "Inert snippet with <svg onload=alert(1)>",
+                            rank: 1,
+                            engine: "serper",
+                            is_snippet_only: true
+                        }
+                    ],
+                    [
+                        {
+                            source_id: "src_xss",
+                            initial_url: "https://example.com/xss",
+                            status: "retrieved",
+                            http_status_code: 200,
+                            fetched_at: new Date().toISOString(),
+                            extracted_text: maliciousPassage
+                        }
+                    ],
+                    [
+                        {
+                            passage_id: "psg_xss",
+                            source_id: "src_xss",
+                            claim_id: claimId8,
+                            source_url: "https://example.com/xss",
+                            exact_passage: maliciousPassage,
+                            retrieved_at: new Date().toISOString()
+                        }
+                    ]
+                );
+            });
+
+            researchBtn8.click();
+            await delay(50);
+
+            const container8 = document.getElementById(`research-container-${claimId8}`);
+            assert(container8.textContent.includes(maliciousHitTitle), "XSS payload in title rendered as inert text");
+            assert(container8.textContent.includes(maliciousPassage), "XSS payload in passage rendered as inert text");
+            assert(window.__XSS_TRIGGERED === undefined, "XSS script never executed");
+            assert(container8.querySelectorAll("script").length === 0, "No injected script element created");
 
             log("\n=================================================");
             log(`ALL TESTS PASSED: ${passedCount} assertions passed, 0 failures.`);

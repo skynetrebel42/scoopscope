@@ -12,8 +12,14 @@ import enum
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
-
 from pydantic import BaseModel, Field
+
+from app.search.models import (
+    ClaimLinkedQuery,
+    EvidencePassage,
+    RetrievedSource,
+    SearchResultHit,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -122,3 +128,37 @@ class ErrorResponse(BaseModel):
     detail: Optional[str] = None
     submitted_text: Optional[str] = None
     source_url: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Research API models (Milestone 2C)
+# ---------------------------------------------------------------------------
+
+class ResearchRequest(BaseModel):
+    """Incoming request to gather candidate evidence for a single claim."""
+    submission_id: str = Field(..., min_length=1)
+    claim_id: str = Field(..., min_length=1)
+    claim_text: str = Field(..., min_length=1, max_length=5000)
+    claim_type: str = Field(default="factual")
+    explicit_location: Optional[str] = None
+    explicit_date: Optional[str] = None
+    source_url: Optional[str] = None
+
+
+class ResearchResponse(BaseModel):
+    """Result of search and retrieval for a single claim.
+
+    CRITICAL: Does NOT contain verification verdicts or truth scores.
+    Gathers unverified search snippets and safely retrieved source passages only.
+    """
+    submission_id: str
+    claim_id: str
+    queries_used: list[ClaimLinkedQuery]
+    search_hits: list[SearchResultHit]
+    retrieved_sources: list[RetrievedSource]
+    candidate_passages: list[EvidencePassage]
+    researched_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+    status_message: str
+    completed_in_seconds: float

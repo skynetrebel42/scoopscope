@@ -19,7 +19,15 @@ from app.gemini_adapter import (
     GeminiAdapter,
     GeminiAdapterError,
 )
-from app.models import ErrorResponse, ExtractionRequest, ExtractionResponse
+from app.models import (
+    ErrorResponse,
+    ExtractionRequest,
+    ExtractionResponse,
+    ResearchRequest,
+    ResearchResponse,
+)
+from app.research import ResearchOrchestrator
+from app.search.provider import SearchProviderError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,8 +52,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Adapter is created once at startup.
+# Adapters created once at startup.
 gemini = GeminiAdapter()
+research_orchestrator = ResearchOrchestrator()
 
 # ---------------------------------------------------------------------------
 # API routes
@@ -58,6 +67,7 @@ async def health():
     return {
         "status": "ok",
         "credentials_configured": settings.has_credentials,
+        "search_credentials_configured": settings.has_search_credentials,
         "model": settings.gemini_model,
     }
 
@@ -141,6 +151,60 @@ async def extract_claims(req: ExtractionRequest):
         source_url=req.source_url,
         claims=claims,
     )
+
+
+@app.post(
+    "/api/research",
+    response_model=ResearchResponse,
+    responses={
+        400: {"model": ErrorResponse},
+        502: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+async def research_claim(req: ResearchRequest):
+    """Gather search hits and safely retrieved passages for a single claim.
+
+    CRITICAL: Does NOT generate verdicts or truth scores. Gathers inspectable
+    candidate evidence only.
+    """
+    if not settings.has_search_credentials:
+        return JSONResponse(
+            status_code=503,
+            content=ErrorResponse(
+                error="Search credentials not configured",
+                detail="SERPER_API_KEY is not set in backend/.env. Please configure a valid Serper API key to search external sources.",
+                submitted_text=req.claim_text,
+                source_url=req.source_url,
+            ).model_dump(),
+        )
+
+    try:
+        result = await research_orchestrator.research_claim(req)
+        return result
+    except SearchProviderError as exc:
+        logger.error("Search provider error: %s", exc)
+        status_code = 503 if "not configured" in str(exc) else 502
+        return JSONResponse(
+            status_code=status_code,
+            content=ErrorResponse(
+                error="Search provider failure",
+                detail=str(exc),
+                submitted_text=req.claim_text,
+                source_url=req.source_url,
+            ).model_dump(),
+        )
+    except Exception as exc:
+        logger.exception("Unexpected error during research")
+        return JSONResponse(
+            status_code=500,
+            content=ErrorResponse(
+                error="Internal research error",
+                detail="An unexpected error occurred during research. Please try again.",
+                submitted_text=req.claim_text,
+                source_url=req.source_url,
+            ).model_dump(),
+        )
 
 
 # ---------------------------------------------------------------------------

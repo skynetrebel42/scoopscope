@@ -243,28 +243,34 @@ class SafeNetworkBackend(AutoBackend):
                     f"Destination {host} resolved to non-public IP {ip_cand} ({reason})"
                 )
 
-        target_ip = ips[0]
-        self.last_connected_ip = target_ip
+        last_exc: Exception | None = None
+        for target_ip in ips:
+            try:
+                if self._underlying_backend is not None:
+                    stream = await self._underlying_backend.connect_tcp(
+                        host=target_ip,
+                        port=port,
+                        timeout=timeout,
+                        local_address=local_address,
+                        socket_options=socket_options,
+                    )
+                else:
+                    stream = await super().connect_tcp(
+                        host=target_ip,
+                        port=port,
+                        timeout=timeout,
+                        local_address=local_address,
+                        socket_options=socket_options,
+                    )
+                self.last_connected_ip = target_ip
+                return stream
+            except Exception as exc:
+                last_exc = exc
+                continue
 
-        # Connect directly to target_ip.
-        # Note: httpcore will invoke stream.start_tls(server_hostname=origin_host)
-        # on the resulting stream, preserving SNI and TLS certificate verification.
-        if self._underlying_backend is not None:
-            return await self._underlying_backend.connect_tcp(
-                host=target_ip,
-                port=port,
-                timeout=timeout,
-                local_address=local_address,
-                socket_options=socket_options,
-            )
-
-        return await super().connect_tcp(
-            host=target_ip,
-            port=port,
-            timeout=timeout,
-            local_address=local_address,
-            socket_options=socket_options,
-        )
+        if last_exc is not None:
+            raise last_exc
+        raise SafeFetchError(f"No IP addresses could be reached for {host}")
 
 
 class SafeAsyncHTTPTransport(httpx.AsyncHTTPTransport):
@@ -386,7 +392,20 @@ class SafeFetcher:
                     error_message=f"DNS_ERROR: {exc}",
                 )
 
-            # 4. Execute request with custom or bound transport
+            # 4. Check deadline after DNS and execute request with custom or bound transport
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return RetrievedSource(
+                    source_id=source_id,
+                    initial_url=url,
+                    final_url=current_url,
+                    redirect_count=redirect_count,
+                    resolved_ip=last_resolved_ip,
+                    status=SourceFetchState.INACCESSIBLE,
+                    fetched_at=now_iso,
+                    error_message=f"TIMEOUT: Overall fetch deadline of {self.overall_timeout_seconds}s exceeded after DNS resolution.",
+                )
+
             backend = SafeNetworkBackend(dns_resolver=self._dns_resolver)
             transport = self._custom_transport or SafeAsyncHTTPTransport(network_backend=backend)
 

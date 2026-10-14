@@ -10,6 +10,7 @@ from app.search.models import (
     SourceFetchState,
 )
 from app.search.provider import SearchProvider, SearchProviderError
+from app.search.serper_provider import SerperSearchProvider
 
 __all__ = [
     "ClaimLinkedQuery",
@@ -19,6 +20,7 @@ __all__ = [
     "SearchResultHit",
     "SearchProvider",
     "SearchProviderError",
+    "SerperSearchProvider",
     "SourceDependence",
     "SourceFetchState",
 ]
