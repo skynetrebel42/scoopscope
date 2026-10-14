@@ -210,3 +210,24 @@ async def test_secrets_not_leaked_in_exceptions():
             await provider.search("test")
         except SearchProviderError as exc:
             assert secret_key not in str(exc)
+
+
+@pytest.mark.anyio
+async def test_outbound_requests_counted_including_retries():
+    call_count = 0
+
+    async def mock_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return httpx.Response(500, text="Internal Error")
+        return httpx.Response(200, json={"organic": [{"title": "Hit", "link": "https://example.com/hit", "position": 1}]})
+
+    transport = httpx.MockTransport(mock_handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        provider = SerperSearchProvider(api_key="key", custom_client=client)
+        results = await provider.search("retry test")
+
+    assert call_count == 2
+    assert provider.total_requests_made == 2
+    assert len(results) == 1

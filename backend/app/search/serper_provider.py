@@ -39,6 +39,7 @@ class SerperSearchProvider(SearchProvider):
         self._api_key = (api_key or "").strip()
         self._timeout_seconds = timeout_seconds
         self._custom_client = custom_client
+        self.total_requests_made = 0
 
     async def search(self, query: str, max_results: int = 5) -> list[RawSearchResult]:
         """Execute a search query via Serper Google Search API.
@@ -78,8 +79,9 @@ class SerperSearchProvider(SearchProvider):
         attempts = 0
         last_error_detail = ""
 
-        while attempts < MAX_SEARCH_ATTEMPTS:
+        while attempts < MAX_SEARCH_ATTEMPTS and self.total_requests_made < MAX_SEARCH_ATTEMPTS:
             attempts += 1
+            self.total_requests_made += 1
             try:
                 if self._custom_client is not None:
                     response = await self._custom_client.post(

@@ -135,6 +135,10 @@ class ResearchOrchestrator:
             if remaining <= 0:
                 break
 
+            # Enforce max 2 search API requests including retries across the research action
+            if getattr(provider, "total_requests_made", 0) >= settings.max_search_queries_per_claim:
+                break
+
             q_id = f"qry_{uuid.uuid4().hex[:10]}"
             linked_query = ClaimLinkedQuery(
                 query_id=q_id,
