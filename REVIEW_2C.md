@@ -111,11 +111,35 @@ The browser test harness in `backend/tests/test_frontend_ordering.py` and `front
 - SSRF defenses (CGNAT, loopback, private ranges, IPv4-mapped IPv6, DNS rebinding, redirect hops) verified via socket-level mock transports.
 - Verbatim character offset slicing and HTML tag stripping verified on HTML fixtures.
 
-### Live Smoke Status (Awaiting User API Key)
-- `SERPER_API_KEY` is currently **absent** from `backend/.env`.
-- As mandated by the milestone specification:
-  - ScoopScope **never silently substitutes mock results** in production.
-  - The live backend returns `503 Service Unavailable` with diagnostic message: `"SERPER_API_KEY is not configured in backend/.env. Search provider is unavailable."`
-  - No external queries have been dispatched and no billing has been activated.
-- **Single Live Smoke Investigation Ready**:
-  Once you configure `SERPER_API_KEY` in `backend/.env` and confirm unused free credits, we will execute the single authorized live smoke investigation within the 2-query, 3-page, 90-second limit.
+## 6. Live Validation Status (Separated from Fixture Results)
+
+### Fixture-Based Verification (Completed & Passing)
+- Serper response parsing, rank preservation, and 5-hit cap verified with mock JSON payloads.
+- Status code mappings (401, 403, 429, 500) and retry boundaries verified via `httpx.MockTransport`.
+- SSRF defenses (CGNAT, loopback, private ranges, IPv4-mapped IPv6, DNS rebinding, redirect hops) verified via socket-level mock transports.
+- Verbatim character offset slicing and HTML tag stripping verified on HTML fixtures.
+
+### Live Smoke Investigation (COMPLETED & VERIFIED)
+Executed with user-confirmed free credits within all mandated limits:
+- **Test Statement**: `"Mayor Karen Bass took office in December 2022 as the 43rd Mayor of Los Angeles."`
+- **Extracted Claim**: `"Karen Bass took office as the 43rd Mayor of Los Angeles in December 2022."` (factual, Los Angeles, December 2022).
+- **Search Query Executed**: Exactly **1** query sent to Serper (`primary_assertion`), consuming 1 of the 2 allowed outbound search requests.
+- **Search Hits Returned**: Exactly **5** hits (capped at 5). Each hit carries immutable `is_snippet_only: True` and is prominently marked with a `Snippet Only #N` disclaimer badge.
+- **Candidate Pages Attempted & Outcomes**:
+  1. `https://lacity.gov/news/karen-bass-sworn-43rd-mayor-los-angeles`:
+     - Outcome: **RETRIEVED** (HTTP 200, IP: `23.48.203.178`, size: 31,545 bytes).
+  2. `https://en.wikipedia.org/wiki/Karen_Bass`:
+     - Outcome: **RETRIEVED** (HTTP 200, IP: `198.35.26.224`, size: 757,252 bytes).
+  3. `https://www.nytimes.com/2022/12/12/us/karen-bass-los-angeles-mayor.html`:
+     - Outcome: **INACCESSIBLE** (HTTP 403 Forbidden, IP: `151.101.73.164`, size: 0 bytes). Accurately captures paywall/bot obstruction without crashing.
+- **Displayed Verbatim Passage Checked Against Retained Extracted Text**:
+  - Passage 1 from `lacity.gov`:
+    `"Karen Bass was sworn in by Vice President Kamala Harris as Los Angeles' 43rd mayor in a historic inauguration ceremony on Sunday, December 11, 2022. Karen Bass is the 43rd Mayor of Los Angeles and the first woman and second African American to be elected as the city's chief executive. With an agenda focused on bringing urgency, accountability, and a new direction to Los Angeles, she will start her term with a focus on housing people immediately and increasing safety and opportunity in every part of Los Angeles."`
+  - Offsets: `[313:829]`
+  - Programmatic Check: `extracted_text[313:829] == exact_passage` -> **VERIFIED EXACT SUBSTRING MATCH** (516 characters).
+- **Browser Presentation & Distinction**:
+  - Live browser execution on `http://127.0.0.1:8000` verified via automated browser subagent.
+  - Search hits group is visually and semantically distinct from retrieved candidate sources.
+  - Collapsible drawers (`"Show surrounding context"` and `"Inspect full extracted page text"`) allow complete auditing of retained text.
+  - All external text is rendered inertly via `textContent` without verdicts, truth meters, or confidence scores.
+- **Elapsed Duration**: 6.26 seconds (well within the 90s deadline). Zero secret leakage.

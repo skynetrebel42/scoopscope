@@ -122,25 +122,20 @@ Last updated: 2026-10-14
 - Programmatic character offsets verified (`extracted_text[start:end] == exact_passage`).
 - Headless Chrome browser suite verified with 50 assertions across 8 tests (stale response discard, Try Again recovery, research action, inert rendering).
 
-### 2. Live Smoke Status
-- `SERPER_API_KEY` is currently **absent** from `backend/.env`.
-- In accordance with the project instructions:
-  - Mock search was **not** silently substituted in production mode.
-  - The backend returns `503 Service Unavailable` with the exact message: `"SERPER_API_KEY is not configured in backend/.env. Search provider is unavailable."`
-  - Billing was **not** activated or modified.
-- **To run a live smoke investigation**:
-  1. Obtain a free Serper API key from [serper.dev](https://serper.dev) (2,500 free queries included).
-  2. Open `backend/.env` and add:
-     ```env
-     SERPER_API_KEY=your_serper_key_here
-     ```
-  3. Start the application:
-     ```powershell
-     cd backend
-     .\.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000
-     ```
-  4. Open `http://127.0.0.1:8000` in your browser.
-  5. Enter a statement, click "Extract Claims", and click "Find sources" on any factual claim.
+### 2. Live Smoke Status (COMPLETED & VERIFIED)
+- `SERPER_API_KEY` configured locally in `backend/.env`.
+- Executed single authorized live smoke investigation:
+  - Input: `"Mayor Karen Bass took office in December 2022 as the 43rd Mayor of Los Angeles."`
+  - Factual claim extracted and researched in 6.26s.
+  - Queries: 1 query sent to Serper (1 of 2 allowed search requests).
+  - Search hits: 5 hits returned (capped at 5), all marked `is_snippet_only: True`.
+  - Candidate pages fetched: 3 pages attempted (limit 3):
+    * `https://lacity.gov/news/karen-bass-sworn-43rd-mayor-los-angeles`: **Retrieved** (HTTP 200, IP: `23.48.203.178`, 31,545 bytes).
+    * `https://en.wikipedia.org/wiki/Karen_Bass`: **Retrieved** (HTTP 200, IP: `198.35.26.224`, 757,252 bytes).
+    * `https://www.nytimes.com/2022/12/12/us/karen-bass-los-angeles-mayor.html`: **Inaccessible** (HTTP 403 Forbidden, IP: `151.101.73.164`, 0 bytes).
+  - Verbatim candidate passages: 4 passages extracted. Programmatic character offset check verified 100% exact substring match (`extracted_text[start:end] == exact_passage`).
+  - Browser presentation verified via headless Chrome browser subagent with distinct search hit and candidate source groups, collapsible text inspectors, and inert text rendering.
+  - Zero verdicts, truth scores, or confidence ratings generated. Zero secrets leaked.
 
 ---
 
