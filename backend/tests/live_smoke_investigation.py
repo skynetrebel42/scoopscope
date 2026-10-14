@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from httpx import ASGITransport, AsyncClient
 
-from app.main import app
+from app.main import app, research_orchestrator
 from app.config import settings
 
 
@@ -97,6 +97,11 @@ async def run_live_smoke():
         passages = data.get("candidate_passages", [])
 
         print(f"\n[Step 4] Validating Live Constraints:")
+        provider_inst = getattr(research_orchestrator, "_search_provider", None) or research_orchestrator._get_search_provider()
+        total_outbound = getattr(provider_inst, "total_requests_made", len(queries))
+        print(f"  - Actual outbound search HTTP attempts made: {total_outbound} (limit <= 2)")
+        assert total_outbound <= 2, f"Exceeded outbound search attempt limit: {total_outbound}"
+
         print(f"  - Queries executed: {len(queries)} (limit <= 2)")
         assert len(queries) <= 2, f"Exceeded query limit: {len(queries)}"
         for q in queries:

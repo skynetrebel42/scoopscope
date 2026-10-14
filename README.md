@@ -10,7 +10,7 @@ claims back — with original wording, classification, and extracted metadata.
 
 ## Prerequisites
 
-- **Python 3.10+** (tested with 3.14)
+- **Python 3.11+** (required for asyncio.timeout; tested with 3.14)
 - **Gemini API key** from [Google AI Studio](https://aistudio.google.dev/apikey)
   (free tier available — see notes below)
 

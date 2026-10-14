@@ -8,10 +8,11 @@ Milestone: 2C — Real Search Provider, Bounded Retrieval, and Inspectable Candi
 ## 1. Environment & Git Status
 
 - **Canonical Workspace & Git Root**: `c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope\`
-- **Current HEAD**: `5eb71d910f48a031e41875ba89134a98f9f21b1c` (branch `master`)
-- **Milestone Baseline**: `713a134` (Milestone 2B checkpoint)
-- **Previous Review Snapshot**: `ae832bfe465f3e624a4a93706c1623e2fd85689c`
-- **Working Tree Status**: Repaired and verified clean.
+- **Packaged Commit / HEAD**: `7e57aa9f3ff6bdcd4a7041b3f505cb81fc4771b4` (branch `master`)
+- **Tested Commit**: `7e57aa9f3ff6bdcd4a7041b3f505cb81fc4771b4`
+- **Prior Reviewed HEAD**: `3e47c49c5e16bd5a6df32a4fad4ad17bc884353e`
+- **Milestone 2B Baseline Checkpoint**: `713a134`
+- **Working Tree Status**: Repaired, verified, and committed clean.
 - **Secret Protection**: `.env` and `backend/.env` are git-ignored and strictly excluded from git tracking. No API keys or tokens are committed or displayed.
 
 ---
@@ -24,7 +25,7 @@ backend\.venv\Scripts\python.exe -m pytest backend/tests -v
 ```
 
 ### Final Results
-- **Outcome**: **115 passed**, 0 failed, 0 skipped, 2 deprecation warnings in dependencies (`google.genai.types` and `starlette.testclient`).
+- **Outcome**: **122 passed**, 0 failed, 0 skipped, 2 deprecation warnings in dependencies (`google.genai.types` and `starlette.testclient`).
 - **Duration**: ~30.3 seconds across all unit, integration, and security checks.
 
 ### Headless Browser Ordering & State Test Command
@@ -33,7 +34,7 @@ backend\.venv\Scripts\python.exe -m pytest backend/tests/test_frontend_ordering.
 ```
 
 ### Browser Test Results
-- **Outcome**: **1 passed** (65 browser assertions passed across 8 tests, 0 failures in 1.18s).
+- **Outcome**: **1 passed** (88 browser assertions passed across 9 test suites, 0 failures in 1.03s).
 - **Browser Executable**: `C:\Program Files\Google\Chrome\Application\chrome.exe` (`--headless=new`).
 
 ### Test Suite Breakdown
@@ -45,45 +46,59 @@ backend\.venv\Scripts\python.exe -m pytest backend/tests/test_frontend_ordering.
 | `backend/tests/test_serper_provider.py` | 12 | Serper API contract, 401/403/429 status mapping, bounded 5xx retries, outbound attempt accounting, secret redaction | PASSED |
 | `backend/tests/test_search_contract.py` | 9 | `SearchProvider` Protocol, `SearchResultHit` snippet immutability, date/dependence defaults, query generation | PASSED |
 | `backend/tests/test_passage_extractor.py` | 9 | Script/style stripping, entity decoding (single decode R1), exact substring offsets, provenance verification, URL deduplication, void element handling (<embed> R1), table cell number separation (R1), plain-text MIME preservation (<exception> R1) | PASSED |
-| `backend/tests/test_research_endpoint.py` | 5 | Orchestrator flow with mock provider & fetcher (injected DNS R5), candidate page budget cap (3), partial fetch failures, 503 on missing credentials, cancellable orchestrator deadline enforcement (R2), malformed port error isolation (R3) | PASSED |
-| `backend/tests/test_frontend_ordering.py` | 1 (65 asserts) | In-browser state ownership, sequence protection, stale result discard, Try Again recovery, research action, input/URL modification invalidation (R4), inert rendering | PASSED |
-| **Total** | **115 passed** | **Zero failures** | **ALL PASSED** |
+| `backend/tests/test_research_endpoint.py` | 12 | Orchestrator flow with mock provider & fetcher (injected DNS R5), candidate page budget cap (3), partial fetch failures, 503 on missing credentials, cancellable orchestrator deadline enforcement (R2), malformed port error isolation (R3), search provider failure propagation on 401/403/429/500 (F1), partial evidence preservation on search failure with source URL (F1), legitimate 0-hit search distinguishability (F1), cooperative synchronous extraction deadline enforcement on large documents (F3) | PASSED |
+| `backend/tests/test_frontend_ordering.py` | 1 (88 asserts) | In-browser state ownership, sequence protection, stale result discard, Try Again recovery, research action, input/URL modification invalidation (R4), inert rendering, claim switching A then B in both resolution orders with button restoration (F2) | PASSED |
+| **Total** | **122 passed** | **Zero failures** | **ALL PASSED** |
 
 ---
 
-## 3. Summary of Code Review Repairs (R1–R5)
+## 3. Summary of Code Review Repairs
 
-### R1. Source Cleaning and Fidelity Preserved
-- **Void Element Handling**: Added `HTML5_VOID_TAGS` (`embed`, `hr`, `br`, `img`, `input`, etc.) to prevent void elements from altering `_ignore_depth`. Text following `<embed>` (e.g. corrections) is retained.
-- **Table Cell Boundaries**: Added `TABLE_CELL_TAGS` (`td`, `th`) in `HTMLTextExtractor` to insert space delimiters so distinct numbers across table cells (e.g. `2022` and `43`) do not merge into `202243`.
-- **Single Entity Decode**: Removed redundant second `html.unescape()` call in `get_text()`, allowing `HTMLParser(convert_charrefs=True)` to decode entities once and preserving literal text such as `&amp;lt;warning&amp;gt;` as `&lt;warning&gt;`.
-- **MIME-Aware Cleaner**: Created `clean_text_content(content, content_type)`. For `text/plain`, angle-bracketed text like `Rule: <exception>` is preserved verbatim without stripping.
-- **Inspectable Provenance**: Added `raw_text: str | None` (bounded to first 5,000 characters of raw downloaded content) and `extraction_note: str | None` to `RetrievedSource` for extraction auditability.
+### Prior Repair Pass (R1–R5)
+- **R1. Source Cleaning and Fidelity**: Added `HTML5_VOID_TAGS` (`embed`, etc.), `TABLE_CELL_TAGS` spacing, single entity decode, and MIME-aware text cleaner.
+- **R2. Cancellable Deadlines**: Overall cancellable `asyncio.timeout` in `SafeFetcher` and `ResearchOrchestrator`.
+- **R3. Port Syntax & Candidate Isolation**: `try...except ValueError` on port validation converting bad/overflow ports to `SafeFetchError`, with isolated candidate error records.
+- **R4. Input/URL Edits**: Form input edits immediately invalidate pending extraction, cancel in-flight research ownership, and disable research buttons with warning banner.
+- **R5. Test Harness**: Injected DNS resolver into offline tests and added monotonic timing assertions.
 
-### R2. Cancellable Deadlines Enforced
-- **SafeFetcher**: Wrapped `fetch()` in an overall cancellable `async with asyncio.timeout(...)`. When DNS or transport hangs, the operation is cancelled cleanly and returns a structured timeout result without extending the deadline. Added `test_safe_fetcher_enforces_deadline_on_slow_dns` asserting elapsed cancellation < 0.15s.
-- **ResearchOrchestrator**: Wrapped `research_claim` execution in `async with asyncio.timeout(...)` and provider search in `asyncio.wait_for`. Removed `max(1.0, remaining)` fallback; now uses `min(30.0, remaining)`. Preserves partial results if deadline fires and marks `status_message` with timeout diagnostics. Tested via `test_research_orchestrator_enforces_cancellable_deadline` asserting elapsed time.
+### Follow-Up Repair Pass (F1–F3 and Consistency Items)
 
-### R3. Malformed URL/Port Isolation and Request Bounds
-- **Port Syntax Handling**: Wrapped `parsed.port` and `parsed.hostname` in `validate_url_syntax` with `try...except ValueError` to catch non-integer and out-of-range ports (`:bad`, `:99999`) and convert them into `SafeFetchError`.
-- **Candidate Isolation**: Wrapped per-candidate fetches in try/except (preserving `asyncio.CancelledError`) so unexpected retrieval failures mark that individual source as `INACCESSIBLE` and do not abort the research request or return HTTP 500.
-- **Request Bounds**: Added explicit length limits to `ResearchRequest` (`claim_text` max 5000 chars, `source_url` max 4096 chars, `submission_id` and `claim_id` max 200 chars).
+#### F1. Search Failure State Preservation and Propagation
+- **Problem**: Broad exception handling in search loop swallowed provider failures, logging them and returning an ordinary 200 response reporting 0 hits.
+- **Fix**:
+  - When no `source_url` is supplied: `SearchProviderError` (and unexpected search provider exceptions) re-raise directly, caught by FastAPI `/api/research` to return structured HTTP 502/503 errors (`"Search provider failure"`). All API keys and secrets are scrubbed via `_sanitize_error_message()`. The UI `showResearchError` displays an explicit error banner.
+  - When a `source_url` is supplied: The orchestrator preserves partial evidence, extracting passages from the supplied URL while setting `search_failure_message` on `ResearchResponse`. The UI renders an alert banner ("Search provider unavailable: ...") in the research results panel.
+  - Distinguishable from legitimate zero-hit searches: A normal 0-hit search returns 200 with `search_failure_message=None`, `search_hits=[]`, and `"Gathered 0 candidate search hit(s)"`.
+- **Tests Added**: Parametrized tests for 401, 403, 429, and 500 retry-exhausted failures without `source_url`, partial evidence preservation with `source_url`, and legitimate zero-hit distinction in `test_research_endpoint.py`.
 
-### R4. Input and URL Edits Invalidate Stale Extraction and Research
-- **Input Edit Handlers**: In `frontend/app.js`, both `inputText` and `sourceUrl` input events trigger `handleInputEdit()`, which:
-  1. Increments `currentSubmissionSeq++` to discard in-flight extraction responses.
-  2. Resets `setLoading(false)` on extraction button.
-  3. Increments `activeResearchSeq++` and clears `activeResearchClaimId`.
-  4. Marks any displayed claims snapshot outdated with an explicit notice banner and disables research buttons (`button.disabled = true; button.title = ...`).
-  5. Cleans up in-flight research loading spinners.
-- **Research Finally Cleanup**: `executeResearch` `finally` block verifies state ownership before restoring button state. If the research sequence was superseded or the snapshot is outdated, it does not re-enable the button.
-- **Browser Validation**: Comprehensive Test 7 in `frontend/test_runner.html` tests edit-during-extraction, URL-only edits, and edit-during-research with delayed responses.
+#### F2. Switching Claims Request Ownership and Button State Restoration
+- **Problem**: When user clicked research on Claim A, then clicked Claim B before A finished, A's `finally` block did not restore A's button if it was superseded by B. As a result, Claim A's button remained stuck on `disabled = true` and `"Researching…"`.
+- **Fix**:
+  - In `frontend/app.js` `executeResearch` `finally`:
+    1. Each card cleans up its own loading indicator (`.research-loading-state`).
+    2. Shared global active research claim state (`activeResearchClaimId`) is cleared only if request sequence identity matches (`researchSeq === activeResearchSeq && activeResearchClaimId === claim.id`). Completing a superseded request never clears newer active work.
+    3. Each card restores its button to `disabled = false` and `"Find sources"` (or remains disabled with tooltip if an input edit invalidated the snapshot).
+    4. Stale responses from superseded requests are discarded and never render into the DOM.
+- **Tests Added**: In-browser Test 9 in `frontend/test_runner.html` testing:
+  - Start A then B, resolve A (error) then B (success): button A restored, error A discarded, button B restored, results B rendered.
+  - Start C then D, resolve D (success) first then C (success) second: button D restored, results D rendered, button C restored, stale results C discarded.
+  - Neither card remains loading after resolution.
 
-### R5. Test Harness and Fixture Repairs
-- **HTTPX Response Fixtures**: Replaced `html=` with standard `text=` in `test_safe_fetcher.py`.
-- **DNS Resolver Injection**: Injected mock DNS resolver into `test_research_endpoint.py` so offline orchestrator tests do not touch system DNS.
-- **Elapsed Time Assertions**: Added monotonic timing checks to safe fetcher and orchestrator deadline tests.
-- **Live Smoke Assertions**: Updated `live_smoke_investigation.py` to assert elapsed time <= 90s, at least 1 retrieved source, at least 1 extracted passage, and outbound search attempt bounds.
+#### F3. Cooperative Synchronous Extraction Deadline Enforcement
+- **Problem**: Cleaners and passage extraction ran synchronously in the event loop thread, ignoring the remaining budget and allowing large documents to exceed the deadline and still report ordinary success.
+- **Fix**:
+  - `HTMLTextExtractor`, `clean_html_to_text`, `clean_text_content`, and `extract_candidate_passages` now accept a monotonic `deadline: float`.
+  - `HTMLTextExtractor` checks `time.monotonic() > deadline` every 25 tags via `_check_deadline()`.
+  - `clean_html_to_text` feeds in 16KB chunks, verifying deadline between chunks.
+  - `extract_candidate_passages` checks deadline before splitting, keyword scoring, and passage assembly.
+  - In `ResearchOrchestrator`, monotonic deadline checks before and after synchronous extraction guarantee that over-budget work sets `timed_out = True`, returning an explicit `TIMEOUT` status while preserving completed evidence.
+- **Tests Added**: Regression test with a 670KB document under a 20ms research budget in `test_research_endpoint.py`, asserting explicit `TIMEOUT` status and non-success.
+
+#### Consistency & Provenance Fixes
+- **Python Runtime Requirement**: Updated `backend/pyproject.toml` and `README.md` to `requires-python = ">=3.11"` to match `asyncio.timeout` availability.
+- **Live Request Counting**: `backend/tests/live_smoke_investigation.py` instruments and asserts `total_requests_made <= 2` directly on the search provider instance.
+- **Truncated Raw Audit Sample Wording**: Clarified that `raw_text` stores only the first 5,000 characters of raw downloaded content as an API debug/audit sample; it is not complete user-inspectable original-source provenance and does not validate passages occurring beyond that prefix.
+- **Snapshot Identity Reconciled**: Packaged commit and tested commit are explicitly synchronized.
 
 ---
 

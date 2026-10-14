@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "scoopscope-backend"
 version = "0.1.0"
 description = "ScoopScope claim investigator backend"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",

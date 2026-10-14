@@ -15,6 +15,7 @@ from __future__ import annotations
 from html.parser import HTMLParser
 import html
 import re
+import time
 import urllib.parse
 import uuid
 
@@ -125,12 +126,21 @@ class HTMLTextExtractor(HTMLParser):
     - Table cell boundaries insert spaces so distinct numbers/values do not merge.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, deadline: float | None = None) -> None:
         super().__init__(convert_charrefs=True)
         self._ignore_depth = 0
         self._chunks: list[str] = []
+        self._deadline = deadline
+        self._tag_counter = 0
+
+    def _check_deadline(self) -> None:
+        if self._deadline is not None:
+            self._tag_counter += 1
+            if self._tag_counter % 25 == 0 and time.monotonic() > self._deadline:
+                raise TimeoutError("HTML parsing exceeded monotonic deadline")
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._check_deadline()
         tag_lower = tag.lower()
         # Void elements cannot have children; never increment ignore depth
         if tag_lower in IGNORE_CONTAINER_TAGS and tag_lower not in HTML5_VOID_TAGS:
@@ -141,6 +151,7 @@ class HTMLTextExtractor(HTMLParser):
             self._chunks.append(" ")
 
     def handle_endtag(self, tag: str) -> None:
+        self._check_deadline()
         tag_lower = tag.lower()
         if tag_lower in IGNORE_CONTAINER_TAGS and tag_lower not in HTML5_VOID_TAGS:
             self._ignore_depth = max(0, self._ignore_depth - 1)
@@ -157,9 +168,13 @@ class HTMLTextExtractor(HTMLParser):
         # Note: HTMLParser(convert_charrefs=True) has already unescaped entities once.
         # Do NOT call html.unescape() a second time here, as it would double-decode
         # literal source text like &amp;lt; into <.
+        if self._deadline is not None and time.monotonic() > self._deadline:
+            raise TimeoutError("HTML text normalization exceeded monotonic deadline")
         raw_text = "".join(self._chunks)
         paragraphs: list[str] = []
         for block in raw_text.split("\n\n"):
+            if self._deadline is not None and time.monotonic() > self._deadline:
+                raise TimeoutError("HTML text normalization exceeded monotonic deadline")
             normalized_block = re.sub(r"[ \t\r\f\v]+", " ", block).strip()
             if normalized_block:
                 paragraphs.append(normalized_block)
@@ -167,24 +182,37 @@ class HTMLTextExtractor(HTMLParser):
         return "\n\n".join(paragraphs)
 
 
-def clean_html_to_text(html_content: str) -> str:
-    """Safely convert raw HTML into clean readable paragraphs."""
+def clean_html_to_text(html_content: str, deadline: float | None = None) -> str:
+    """Safely convert raw HTML into clean readable paragraphs with cooperative deadline enforcement."""
     if not html_content:
         return ""
-    parser = HTMLTextExtractor()
+    if deadline is not None and time.monotonic() > deadline:
+        raise TimeoutError("HTML parsing exceeded monotonic deadline")
+    parser = HTMLTextExtractor(deadline=deadline)
     try:
-        parser.feed(html_content)
+        # Feed in chunks to enforce deadline cooperatively on large documents
+        chunk_size = 16384
+        for i in range(0, len(html_content), chunk_size):
+            if deadline is not None and time.monotonic() > deadline:
+                raise TimeoutError("HTML parsing exceeded monotonic deadline")
+            parser.feed(html_content[i:i + chunk_size])
         parser.close()
         return parser.get_text()
+    except TimeoutError:
+        raise
     except Exception:
+        if deadline is not None and time.monotonic() > deadline:
+            raise TimeoutError("HTML fallback parsing exceeded monotonic deadline")
         # Fallback regex strip if parser hits deeply malformed markup
         stripped = re.sub(r"(?is)<(script|style|noscript|svg)[^>]*>.*?</\1>", " ", html_content)
         stripped = re.sub(r"<[^>]+>", " ", stripped)
         return re.sub(r"\s+", " ", stripped).strip()
 
 
-def clean_text_content(content: str, content_type: str | None = None) -> str:
-    """MIME-aware content cleaner.
+def clean_text_content(
+    content: str, content_type: str | None = None, deadline: float | None = None
+) -> str:
+    """MIME-aware content cleaner with cooperative deadline enforcement.
     
     - For text/plain: preserves angle-bracketed text and literal text directly,
       normalizing paragraph spacing without HTML tag stripping.
@@ -193,17 +221,21 @@ def clean_text_content(content: str, content_type: str | None = None) -> str:
     """
     if not content:
         return ""
+    if deadline is not None and time.monotonic() > deadline:
+        raise TimeoutError("Text cleaning exceeded monotonic deadline")
     ct = (content_type or "").lower()
     if "text/plain" in ct:
         # Plain text: normalize whitespace and paragraph breaks without HTML stripping
         paragraphs: list[str] = []
         for block in content.split("\n\n"):
+            if deadline is not None and time.monotonic() > deadline:
+                raise TimeoutError("Text cleaning exceeded monotonic deadline")
             normalized_block = re.sub(r"[ \t\r\f\v]+", " ", block).strip()
             if normalized_block:
                 paragraphs.append(normalized_block)
         return "\n\n".join(paragraphs) if paragraphs else content.strip()
 
-    return clean_html_to_text(content)
+    return clean_html_to_text(content, deadline=deadline)
 
 
 def deduplicate_urls(urls: list[str]) -> list[str]:
@@ -256,6 +288,7 @@ def extract_candidate_passages(
     location: str | None = None,
     date: str | None = None,
     max_passages: int = 2,
+    deadline: float | None = None,
 ) -> list[EvidencePassage]:
     """Extract verifiable verbatim candidate passages from a RETRIEVED source.
 
@@ -268,6 +301,9 @@ def extract_candidate_passages(
     if source.status != SourceFetchState.RETRIEVED or not source.extracted_text:
         return []
 
+    if deadline is not None and time.monotonic() > deadline:
+        raise TimeoutError("Passage extraction exceeded monotonic deadline")
+
     body = source.extracted_text
     keywords = extract_keywords_from_claim(claim_text, location, date)
     keyword_set = set(keywords)
@@ -278,6 +314,8 @@ def extract_candidate_passages(
     raw_paras = body.split("\n\n")
 
     for p in raw_paras:
+        if deadline is not None and time.monotonic() > deadline:
+            raise TimeoutError("Passage extraction exceeded monotonic deadline")
         # Locate paragraph start in body starting from current_idx
         p_start = body.find(p, current_idx)
         if p_start == -1:
@@ -294,6 +332,8 @@ def extract_candidate_passages(
     # Score paragraphs based on keyword overlap
     scored_paragraphs: list[tuple[int, int, int, str, str]] = []
     for start, end, text in paragraphs:
+        if deadline is not None and time.monotonic() > deadline:
+            raise TimeoutError("Passage extraction exceeded monotonic deadline")
         words = set(re.findall(r"\b[a-zA-Z0-9_\-]{3,}\b", text.lower()))
         matched = words.intersection(keyword_set)
         score = len(matched)
@@ -312,6 +352,8 @@ def extract_candidate_passages(
     canonical_url = source.final_url or source.initial_url
 
     for score, start, end, text, note in scored_paragraphs[:max_passages]:
+        if deadline is not None and time.monotonic() > deadline:
+            raise TimeoutError("Passage extraction exceeded monotonic deadline")
         # Form surrounding context (up to 200 characters before and after)
         ctx_start = max(0, start - 200)
         ctx_end = min(len(body), end + 200)

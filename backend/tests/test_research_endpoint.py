@@ -26,14 +26,14 @@ from app.search.models import (
     SourceDependence,
     SourceFetchState,
 )
-from app.search.provider import SearchProvider
+from app.search.provider import SearchProvider, SearchProviderError
 
 
 class MockSearchBackend(SearchProvider):
     """Deterministic mock search provider for test suite."""
 
     def __init__(self, hits: list[RawSearchResult] | None = None) -> None:
-        self.hits = hits or [
+        self.hits = hits if hits is not None else [
             RawSearchResult(
                 title="Office of Mayor Karen Bass",
                 url="https://example.com/mayor-bass",
@@ -298,3 +298,175 @@ async def test_malformed_port_does_not_abort_research():
     assert len(inaccessible) >= 1
     for s in inaccessible:
         assert "INVALID_URL" in (s.error_message or "") or "port" in (s.error_message or "").lower()
+
+
+# ---------------------------------------------------------------------------
+# F1 Regressions: Search Failure Preservation vs Normal Zero-Hit Search
+# ---------------------------------------------------------------------------
+
+class FailingSearchBackend(SearchProvider):
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+        self.call_count = 0
+
+    async def search(self, query: str, max_results: int = 5):
+        self.call_count += 1
+        raise self.exc
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error_exc,expected_status",
+    [
+        (SearchProviderError("Serper authentication failed (401 Unauthorized). The configured SERPER_API_KEY is invalid."), 502),
+        (SearchProviderError("Serper request refused (403 Forbidden). Your Serper account may have exhausted its credit balance."), 502),
+        (SearchProviderError("Serper rate limit exceeded (429 Too Many Requests). Please retry after a brief pause."), 502),
+        (SearchProviderError("Serper search timed out after 2 attempts: HTTP 500 server error"), 502),
+    ],
+)
+async def test_search_provider_failure_without_source_url_propagates_error(error_exc, expected_status, monkeypatch):
+    """F1: When no source_url is supplied, search failure must propagate SearchProviderError and endpoint returns 502/503."""
+    orchestrator = ResearchOrchestrator(
+        search_provider=FailingSearchBackend(error_exc),
+        fetcher=SafeFetcher(),
+    )
+    req = ResearchRequest(
+        submission_id="sub_f1_fail",
+        claim_id="claim_f1_fail",
+        claim_text="The City approved a 13 billion budget",
+        source_url=None,
+    )
+
+    # 1. Orchestrator must raise SearchProviderError directly
+    with pytest.raises(SearchProviderError) as exc_info:
+        await orchestrator.research_claim(req)
+    assert str(error_exc) in str(exc_info.value) or "Serper" in str(exc_info.value)
+
+    # 2. Endpoint handler must catch SearchProviderError and return structured 502/503 error
+    from dataclasses import replace
+    monkeypatch.setattr("app.main.settings", replace(settings, serper_api_key="mock_key"))
+    monkeypatch.setattr("app.main.research_orchestrator", orchestrator)
+    client = TestClient(app)
+    response = client.post("/api/research", json=req.model_dump())
+    assert response.status_code == expected_status
+    body = response.json()
+    assert body["error"] == "Search provider failure"
+    assert "Serper" in body["detail"]
+    # Assert no sensitive api keys leaked
+    assert "mock_key" not in body["detail"]
+
+
+@pytest.mark.anyio
+async def test_search_provider_failure_with_source_url_preserves_partial_evidence():
+    """F1: When source_url is supplied, search failure must be preserved in search_failure_message while extracting supplied source."""
+    failing_search = FailingSearchBackend(SearchProviderError("Serper request refused (403 Forbidden). Quota exhausted."))
+
+    html_content = """
+    <html><body>
+    <article>
+        <p>The Los Angeles City Council approved a 13 billion budget for fiscal year 2024.</p>
+    </article>
+    </body></html>
+    """
+
+    async def mock_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=html_content, headers={"Content-Type": "text/html"})
+
+    fetcher = SafeFetcher(
+        dns_resolver=lambda h: ["93.184.216.34"],
+        custom_transport=httpx.MockTransport(mock_handler),
+    )
+    orchestrator = ResearchOrchestrator(search_provider=failing_search, fetcher=fetcher)
+
+    req = ResearchRequest(
+        submission_id="sub_f1_partial",
+        claim_id="claim_f1_partial",
+        claim_text="The City approved a 13 billion budget for 2024",
+        source_url="https://example.com/budget-report",
+    )
+
+    response = await orchestrator.research_claim(req)
+
+    # Search failure preserved
+    assert response.search_failure_message is not None
+    assert "403 Forbidden" in response.search_failure_message
+    assert "Search provider unavailable" in response.status_message
+
+    # Supplied source was still safely retrieved
+    assert len(response.retrieved_sources) == 1
+    assert response.retrieved_sources[0].status == SourceFetchState.RETRIEVED
+    assert len(response.candidate_passages) >= 1
+    assert "13 billion budget" in response.candidate_passages[0].exact_passage
+
+
+@pytest.mark.anyio
+async def test_legitimate_empty_search_distinguishable_from_provider_failure():
+    """F1: Legitimate zero-hit search returns 200 with search_failure_message=None."""
+    empty_search = MockSearchBackend(hits=[])
+    orchestrator = ResearchOrchestrator(search_provider=empty_search, fetcher=SafeFetcher())
+
+    req = ResearchRequest(
+        submission_id="sub_f1_empty",
+        claim_id="claim_f1_empty",
+        claim_text="Obscure assertion with zero external index hits",
+    )
+
+    response = await orchestrator.research_claim(req)
+
+    assert response.search_failure_message is None
+    assert len(response.search_hits) == 0
+    assert "Gathered 0 candidate search hit(s)" in response.status_message
+    assert "Search provider unavailable" not in response.status_message
+
+
+# ---------------------------------------------------------------------------
+# F3 Regressions: Synchronous Extraction Deadline Enforcement
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_synchronous_extraction_deadline_enforcement(monkeypatch):
+    """F3: When synchronous cleaner/extractor exceeds budget, result must report TIMEOUT, not success."""
+    import time
+    from dataclasses import replace
+
+    # Generate a roughly 670KB HTML document with many tags and paragraphs
+    paragraph = "<p>This is paragraph text describing the city budget and mayor announcements in Los Angeles 2024.</p>\n"
+    large_html = "<html><body><main>\n" + (paragraph * 7000) + "</main></body></html>"
+    assert len(large_html) > 650000
+
+    async def mock_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=large_html, headers={"Content-Type": "text/html"})
+
+    mock_search = MockSearchBackend([
+        RawSearchResult(
+            title="Large Document Source",
+            url="https://example.com/large-doc",
+            snippet="Large document snippet.",
+            rank=1,
+            engine="mock",
+        )
+    ])
+
+    fetcher = SafeFetcher(
+        dns_resolver=lambda h: ["93.184.216.34"],
+        custom_transport=httpx.MockTransport(mock_handler),
+    )
+
+    # Set extremely small research budget: 20ms (0.02s)
+    monkeypatch.setattr("app.research.settings", replace(settings, research_timeout_seconds=0.02))
+
+    orchestrator = ResearchOrchestrator(search_provider=mock_search, fetcher=fetcher)
+    req = ResearchRequest(
+        submission_id="sub_f3",
+        claim_id="claim_f3",
+        claim_text="City budget and mayor announcements in Los Angeles 2024",
+    )
+
+    t0 = time.monotonic()
+    response = await orchestrator.research_claim(req)
+    elapsed = time.monotonic() - t0
+
+    # Must report TIMEOUT, never ordinary success
+    assert "TIMEOUT" in response.status_message, f"Expected TIMEOUT in status_message, got: {response.status_message}"
+    assert "Gathered 1 candidate search hit(s); fetched 1 of 1 candidate page(s) in" not in response.status_message
+

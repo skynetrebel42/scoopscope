@@ -197,6 +197,19 @@
             };
         }
 
+        function createResearchErrorResponse(status, errorMsg, detailMsg) {
+            return {
+                ok: false,
+                status: status,
+                json: async () => ({
+                    error: errorMsg,
+                    detail: detailMsg,
+                    submitted_text: "",
+                    source_url: null
+                })
+            };
+        }
+
         const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
         Element.prototype.scrollIntoView = () => {};
 
@@ -734,6 +747,199 @@
             assert(container8.textContent.includes(maliciousPassage), "XSS payload in passage rendered as inert text");
             assert(window.__XSS_TRIGGERED === undefined, "XSS script never executed");
             assert(container8.querySelectorAll("script").length === 0, "No injected script element created");
+
+            // -------------------------------------------------------------
+            // TEST 9: Switching claims request ownership & button restoration (F2)
+            // -------------------------------------------------------------
+            log("\n--- TEST 9: Switching claims request ownership & button restoration (F2) ---");
+
+            // 9A: Start A, then start B before A completes; resolve A then resolve B
+            const claim9A = {
+                id: "claim-sw-9A",
+                original_wording: "Claim 9A assertion.",
+                normalized_assertion: "Claim 9A assertion.",
+                claim_type: "factual",
+                explicit_date: null,
+                explicit_location: null,
+                explicit_quantity: null,
+                qualifications: null
+            };
+            const claim9B = {
+                id: "claim-sw-9B",
+                original_wording: "Claim 9B assertion.",
+                normalized_assertion: "Claim 9B assertion.",
+                claim_type: "factual",
+                explicit_date: null,
+                explicit_location: null,
+                explicit_quantity: null,
+                qualifications: null
+            };
+
+            mockQueue.push(async (b) => {
+                return createSuccessResponse(b.text, [claim9A, claim9B]);
+            });
+
+            inputText.value = "Switching claims test input 9AB";
+            window.__ScoopScope.executeSubmission();
+            await delay(50);
+
+            const btn9A = document.getElementById("btn-research-claim-sw-9A");
+            const btn9B = document.getElementById("btn-research-claim-sw-9B");
+            const container9A = document.getElementById("research-container-claim-sw-9A");
+            const container9B = document.getElementById("research-container-claim-sw-9B");
+
+            assert(btn9A && btn9B, "Both claim buttons exist");
+            assert(btn9A.disabled === false && btn9B.disabled === false, "Both buttons initially enabled");
+
+            let resolve9A, resolve9B;
+            const promise9A = new Promise(r => { resolve9A = r; });
+            const promise9B = new Promise(r => { resolve9B = r; });
+
+            researchMockQueue.push(async (b) => {
+                await promise9A;
+                return createResearchErrorResponse(502, "Search provider failure", "Serper 502 error for A");
+            });
+            researchMockQueue.push(async (b) => {
+                await promise9B;
+                return createResearchResponse(b.submission_id, "claim-sw-9B", [
+                    {
+                        result_id: "hit_9b",
+                        query_id: "q_9b",
+                        claim_id: "claim-sw-9B",
+                        url: "https://example.com/9b",
+                        title: "Hit 9B",
+                        snippet: "Snippet 9B",
+                        rank: 1,
+                        engine: "serper",
+                        is_snippet_only: true
+                    }
+                ]);
+            });
+
+            // Start A
+            btn9A.click();
+            assert(btn9A.disabled === true, "Button A disabled during research");
+            assert(btn9A.textContent.includes("Researching"), "Button A text is Researching…");
+
+            // Start B before A completes
+            btn9B.click();
+            assert(btn9B.disabled === true, "Button B disabled during research");
+            assert(btn9B.textContent.includes("Researching"), "Button B text is Researching…");
+
+            // Resolve A first (with error response)
+            resolve9A();
+            await delay(50);
+
+            // A's button must be restored and loading cleared, but stale error must NOT be shown
+            assert(btn9A.disabled === false, "Button A re-enabled after A resolves (even when superseded by B)");
+            assert(btn9A.textContent === "Find sources", "Button A text restored to 'Find sources'");
+            assert(container9A.querySelector(".research-loading-state") === null, "Loading state removed from card A");
+            assert(!container9A.textContent.includes("Search provider failure"), "Stale error from superseded request A was discarded");
+
+            // Resolve B second (with success response)
+            resolve9B();
+            await delay(50);
+
+            assert(btn9B.disabled === false, "Button B re-enabled after B resolves");
+            assert(btn9B.textContent === "Find sources", "Button B text restored to 'Find sources'");
+            assert(container9B.querySelector(".research-loading-state") === null, "Loading state removed from card B");
+            assert(container9B.textContent.includes("Hit 9B"), "Current request B results successfully rendered");
+
+            // 9B: Reverse resolution order: start C then D, resolve D first, then resolve C
+            const claim9C = {
+                id: "claim-sw-9C",
+                original_wording: "Claim 9C assertion.",
+                normalized_assertion: "Claim 9C assertion.",
+                claim_type: "factual",
+                explicit_date: null,
+                explicit_location: null,
+                explicit_quantity: null,
+                qualifications: null
+            };
+            const claim9D = {
+                id: "claim-sw-9D",
+                original_wording: "Claim 9D assertion.",
+                normalized_assertion: "Claim 9D assertion.",
+                claim_type: "factual",
+                explicit_date: null,
+                explicit_location: null,
+                explicit_quantity: null,
+                qualifications: null
+            };
+
+            mockQueue.push(async (b) => {
+                return createSuccessResponse(b.text, [claim9C, claim9D]);
+            });
+
+            inputText.value = "Switching claims test input 9CD";
+            window.__ScoopScope.executeSubmission();
+            await delay(50);
+
+            const btn9C = document.getElementById("btn-research-claim-sw-9C");
+            const btn9D = document.getElementById("btn-research-claim-sw-9D");
+            const container9C = document.getElementById("research-container-claim-sw-9C");
+            const container9D = document.getElementById("research-container-claim-sw-9D");
+
+            let resolve9C, resolve9D;
+            const promise9C = new Promise(r => { resolve9C = r; });
+            const promise9D = new Promise(r => { resolve9D = r; });
+
+            researchMockQueue.push(async (b) => {
+                await promise9C;
+                return createResearchResponse(b.submission_id, "claim-sw-9C", [
+                    {
+                        result_id: "hit_9c",
+                        query_id: "q_9c",
+                        claim_id: "claim-sw-9C",
+                        url: "https://example.com/9c",
+                        title: "Stale Hit 9C",
+                        snippet: "Snippet 9C",
+                        rank: 1,
+                        engine: "serper",
+                        is_snippet_only: true
+                    }
+                ]);
+            });
+            researchMockQueue.push(async (b) => {
+                await promise9D;
+                return createResearchResponse(b.submission_id, "claim-sw-9D", [
+                    {
+                        result_id: "hit_9d",
+                        query_id: "q_9d",
+                        claim_id: "claim-sw-9D",
+                        url: "https://example.com/9d",
+                        title: "Hit 9D",
+                        snippet: "Snippet 9D",
+                        rank: 1,
+                        engine: "serper",
+                        is_snippet_only: true
+                    }
+                ]);
+            });
+
+            // Click C then click D
+            btn9C.click();
+            btn9D.click();
+
+            assert(btn9C.disabled === true && btn9C.textContent.includes("Researching"), "Card C is researching");
+            assert(btn9D.disabled === true && btn9D.textContent.includes("Researching"), "Card D is researching");
+
+            // Resolve D first
+            resolve9D();
+            await delay(50);
+
+            assert(btn9D.disabled === false, "Button D restored after resolving first");
+            assert(btn9D.textContent === "Find sources", "Button D text restored");
+            assert(container9D.textContent.includes("Hit 9D"), "Current request D results rendered");
+
+            // Resolve C second (late/superseded)
+            resolve9C();
+            await delay(50);
+
+            assert(btn9C.disabled === false, "Button C restored after resolving second");
+            assert(btn9C.textContent === "Find sources", "Button C text restored");
+            assert(container9C.querySelector(".research-loading-state") === null, "Loading state removed from card C");
+            assert(!container9C.textContent.includes("Stale Hit 9C"), "Late response C was discarded");
 
             log("\n=================================================");
             log(`ALL TESTS PASSED: ${passedCount} assertions passed, 0 failures.`);

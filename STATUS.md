@@ -8,7 +8,7 @@ Last updated: 2026-10-14
 
 ## Workspace & Repository Confirmation
 - **Canonical Workspace & Git Root**: `c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope\`
-- **Active Git Commit Base**: `713a134` (plus Milestone 2C checkpoint)
+- **Active Git Commit / HEAD**: `7e57aa9f3ff6bdcd4a7041b3f505cb81fc4771b4` (Milestone 2B Baseline Checkpoint: `713a134`)
 - **Resolved Path**: No references to stale paths. Clean environment.
 
 ---
@@ -62,18 +62,21 @@ Last updated: 2026-10-14
   - Validates request payload (`submission_id`, `claim_id`, `claim_text`, `claim_type`).
   - If `SERPER_API_KEY` is missing in `backend/.env`, returns `HTTP 503 Service Unavailable` with explanatory detail. Never silently falls back to mock search in production.
   - In orchestrator: runs deterministic claim queries, caps hits to 5, deduplicates URLs, fetches up to 3 candidate pages using `SafeFetcher` within the 90s deadline, extracts verbatim candidate passages, and returns structured `ResearchResponse`.
+  - **F1 Search Failure Preservation**: Distinguishes upstream search failure (401/403 credit exhaustion, 429 rate limit, 500 retry exhaustion) from legitimate zero-hit searches. When no supplied `source_url` exists, propagates `SearchProviderError` to return HTTP 502/503 with sanitized diagnostics. When a supplied `source_url` exists, safely extracts evidence from the supplied source while setting `search_failure_message` on `ResearchResponse`, surfacing an explicit alert banner in the UI.
+  - **F3 Cooperative Extraction Deadline**: Synchronous cleaning and passage extraction accept a monotonic `deadline: float`. `HTMLTextExtractor` verifies the deadline every 25 tags, `clean_html_to_text` feeds in 16KB chunks checking deadline, and `extract_candidate_passages` checks deadline before paragraph splitting, scoring, and passage assembly. A post-execution monotonic check ensures over-budget runs can never return ordinary success, marking `status_message` with `TIMEOUT` while preserving completed evidence.
 
 ### 6. Frontend UI & State Ownership (`frontend/app.js`, `frontend/style.css`)
 - **Target User Experience**:
   - Claim cards render a dedicated "Find sources" button.
   - Clicking "Find sources" transitions button to loading state ("Researching…") with a spinner and 90s notice.
   - Double-clicks and concurrent research actions on the same claim are blocked.
+  - **F2 Switching Claims Ownership**: When switching between claims (e.g. starting A then B), each card's `finally` block removes its loading indicator and restores its button to "Find sources" (or disabled with tooltip if an input edit invalidated the snapshot). Shared active research claim state is guarded by request sequence identity (`researchSeq === activeResearchSeq && activeResearchClaimId === claim.id`), so completing an earlier superseded request never resets newer in-flight work. Stale responses from superseded requests are discarded.
   - Modifying input text or submitting a new text immediately increments `activeResearchSeq` and invalidates any in-flight research, preventing stale results or error states from taking ownership.
   - External search snippets and retrieved pages are presented in distinctly labeled sections:
-    - Search Hits: Marked with prominent "Snippet Only #N" badges and disclaimers stating that snippets only indicate index presence and never count as examined evidence.
+    - Search Hits: Marked with prominent "Snippet Only #N" badges and disclaimers stating that snippets only indicate index presence and never count as examined evidence. If search failed, a distinct notice indicates search unavailability rather than an empty index.
     - Retrieved Sources: Display source URL, HTTP status, resolved IP, size in KB, redirect count, and audit status (`Retrieved (200)`, `SSRF Blocked`, or `Inaccessible`).
     - Verbatim Passages: Render exact quoted excerpts with character offsets and a "Show surrounding context" toggle.
-    - Collapsible Raw Text: "Inspect full extracted page text" toggle lets users audit the complete decoded text.
+    - Truncated Raw Audit Sample: `raw_text` stores only the first 5,000 characters of raw downloaded content as an API debug/audit sample; it is not complete original-source provenance and does not validate passages occurring beyond that prefix.
   - **Inert Text Rendering**: All external titles, URLs, snippets, and passages are set exclusively via `textContent` or `document.createTextNode()`. No raw HTML injection.
   - **Zero Verdicts**: No supported/contradicted verdicts or truth scores are generated or displayed.
 
@@ -99,18 +102,18 @@ Last updated: 2026-10-14
 
 ---
 
-## Automated Test Suite (115 passing — all fixture-based or mocked)
+## Automated Test Suite (122 passing — all fixture-based or mocked)
 
 | Suite | Tests / Assertions | What it covers | Status |
 |---|---|---|---|
 | `test_extraction.py` | 14 tests | Claim extraction, validation, error handling, unique IDs | PASSED |
-| `test_frontend_ordering.py` | 1 test (65 browser assertions) | Headless Chrome browser test: request ordering, stale discard, Try Again, research action, snippet rendering, passage rendering, input/URL modification invalidation (R4), inert text XSS protection | PASSED |
+| `test_frontend_ordering.py` | 1 test (88 browser assertions) | Headless Chrome browser test: request ordering, stale discard, Try Again, research action, snippet rendering, passage rendering, input/URL modification invalidation (R4), inert text XSS protection, switching claims A->B in both resolution orders (F2) | PASSED |
 | `test_search_contract.py` | 9 tests | `SearchProvider` Protocol, `SearchResultHit` snippet immutability, date/dependence defaults, query generation | PASSED |
 | `test_safe_fetcher.py` | 65 tests | IP ranges, IPv4-mapped IPv6, CGNAT, scheme/standard & bad port/credential validation (R3), public success, private/loopback rejection, public-to-private redirect block, DNS rebinding block, 3-hop redirect limit, MIME rejection, 1MB size limit, cancellable deadline and slow DNS enforcement with elapsed bounds (R2), socket connection enforcement | PASSED |
 | `test_serper_provider.py` | 12 tests | Serper contract adherence, missing key handling, search response parsing, 5-hit cap, 401/403/429 status mapping, bounded 5xx retries, outbound attempt accounting, secret redaction | PASSED |
 | `test_passage_extractor.py` | 9 tests | Script/style stripping, entity decoding (single decode R1), exact substring offsets, provenance verification, URL deduplication, void element handling (<embed> R1), table cell number separation (R1), plain-text MIME preservation (<exception> R1) | PASSED |
-| `test_research_endpoint.py` | 5 tests | Orchestrator flow with mock provider & fetcher (injected DNS R5), candidate page budget cap (3), partial fetch failures, 503 on missing credentials, cancellable orchestrator deadline enforcement (R2), malformed port error isolation (R3) | PASSED |
-| **Total** | **115 passed** | Full regression and Milestone 2C capabilities | **ALL PASSED (30.32s)** |
+| `test_research_endpoint.py` | 12 tests | Orchestrator flow with mock provider & fetcher (injected DNS R5), candidate page budget cap (3), partial fetch failures, 503 on missing credentials, cancellable orchestrator deadline enforcement (R2), malformed port error isolation (R3), search provider failure propagation on 401/403/429/500 (F1), partial evidence preservation on search failure with source URL (F1), legitimate 0-hit search distinguishability (F1), cooperative synchronous extraction deadline enforcement on large documents (F3) | PASSED |
+| **Total** | **122 passed** | Full regression and Milestone 2C capabilities | **ALL PASSED (30.27s)** |
 
 ---
 
@@ -121,13 +124,14 @@ Last updated: 2026-10-14
 - DNS resolution injected in offline tests to prevent reliance on host system resolver.
 - Candidate budgets (max 2 queries, max 5 hits/query, max 3 fetched pages) verified.
 - Programmatic character offsets verified (`extracted_text[start:end] == exact_passage`).
-- Headless Chrome browser suite verified with 65 assertions across 8 tests (stale response discard, edit-during-extraction, URL-only edits, edit-during-research, Try Again recovery, research action, inert rendering).
+- Headless Chrome browser suite verified with 88 assertions across 9 test suites (stale response discard, edit-during-extraction, URL-only edits, edit-during-research, Try Again recovery, research action, inert rendering, claim switching A then B in both resolution orders with button restoration).
 
 ### 2. Prior Live Smoke Results (Historical Builder Evidence)
 - The live smoke run against live Gemini and Serper APIs was conducted during the initial Milestone 2C verification pass:
   - Input: `"Mayor Karen Bass took office in December 2022 as the 43rd Mayor of Los Angeles."`
   - Factual claim extracted and researched in 6.26s.
   - Queries: 1 query sent to Serper (1 of 2 allowed search requests).
+  - Outbound attempts: `total_requests_made` instrumented and verified <= 2.
   - Search hits: 5 hits returned (capped at 5), all marked `is_snippet_only: True`.
   - Candidate pages fetched: 3 pages attempted (limit 3):
     * `https://lacity.gov/news/karen-bass-sworn-43rd-mayor-los-angeles`: **Retrieved** (HTTP 200, IP: `23.48.203.178`, 31,545 bytes).
@@ -136,7 +140,7 @@ Last updated: 2026-10-14
   - Verbatim candidate passages: 4 passages extracted. Programmatic character offset check verified 100% exact substring match (`extracted_text[start:end] == exact_passage`).
   - Browser presentation verified via headless Chrome browser subagent with distinct search hit and candidate source groups, collapsible text inspectors, and inert text rendering.
   - Zero verdicts, truth scores, or confidence ratings generated. Zero secrets leaked.
-  - Note: In this repair pass, live smoke assertions in `live_smoke_investigation.py` were updated to explicitly assert elapsed time <= 90s, at least 1 retrieved source, and at least 1 extracted passage. Per instructions, live external API calls were not re-executed during this offline repair pass.
+  - Note: In this repair pass, live smoke assertions in `live_smoke_investigation.py` were updated to explicitly assert elapsed time <= 90s, at least 1 retrieved source, at least 1 extracted passage, and `total_requests_made <= 2`. Per instructions, live external API calls were not re-executed during this offline repair pass.
 
 ---
 

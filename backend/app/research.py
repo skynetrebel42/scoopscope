@@ -76,6 +76,16 @@ def build_search_queries(
     return queries[:2]
 
 
+def _sanitize_error_message(msg: str) -> str:
+    """Sanitize error messages to avoid leaking sensitive credentials or internal paths."""
+    if not msg:
+        return "Search provider error"
+    if settings.serper_api_key and settings.serper_api_key in msg:
+        msg = msg.replace(settings.serper_api_key, "[REDACTED_API_KEY]")
+    msg = re.sub(r"(api[-_]?key|key|token)[=:\s]+[A-Za-z0-9_\-]{8,}", r"\1=[REDACTED]", msg, flags=re.IGNORECASE)
+    return msg
+
+
 class ResearchOrchestrator:
     """Orchestrates search hit gathering and safe page retrieval for a single claim."""
 
@@ -123,11 +133,13 @@ class ResearchOrchestrator:
         candidate_passages: list[EvidencePassage] = []
         distinct_urls: list[str] = []
         timed_out = False
+        search_error: str | None = None
+        has_supplied_source = bool(req.source_url and req.source_url.strip())
 
         provider = self._get_search_provider()
 
         async def _run_pipeline() -> None:
-            nonlocal distinct_urls, timed_out
+            nonlocal distinct_urls, timed_out, search_error
             # Step 1: Generate and execute search queries (at most 2 queries)
             planned_queries = build_search_queries(
                 claim_id=req.claim_id,
@@ -169,8 +181,19 @@ class ResearchOrchestrator:
                     break
                 except asyncio.CancelledError:
                     raise
-                except Exception as exc:
+                except SearchProviderError as exc:
                     logger.warning("Search provider failed on query '%s': %s", q_text, exc)
+                    clean_msg = _sanitize_error_message(str(exc))
+                    if not has_supplied_source:
+                        raise SearchProviderError(clean_msg) from exc
+                    search_error = clean_msg
+                    break
+                except Exception as exc:
+                    logger.warning("Search provider unexpected failure on query '%s': %s", q_text, exc)
+                    clean_msg = _sanitize_error_message(str(exc))
+                    if not has_supplied_source:
+                        raise SearchProviderError(f"Search provider error: {clean_msg}") from exc
+                    search_error = f"Search provider error: {clean_msg}"
                     break
 
                 for raw in raw_results:
@@ -239,7 +262,42 @@ class ResearchOrchestrator:
                 # If retrieved, clean HTML or plain text to readable plaintext and extract verbatim passages
                 if source.status == SourceFetchState.RETRIEVED and source.extracted_text:
                     raw_sample = source.extracted_text[:5000]
-                    cleaned_text = clean_text_content(source.extracted_text, content_type=source.content_type)
+
+                    # Cooperative deadline check before synchronous extraction
+                    if time.monotonic() > overall_deadline:
+                        timed_out = True
+                        source = source.model_copy(
+                            update={
+                                "status": SourceFetchState.INACCESSIBLE,
+                                "error_message": f"TIMEOUT: Research deadline of {settings.research_timeout_seconds}s exceeded during extraction.",
+                                "extracted_text": None,
+                                "raw_text": raw_sample,
+                                "extraction_note": "Timed out before content cleaning.",
+                            }
+                        )
+                        retrieved_sources.append(source)
+                        break
+
+                    try:
+                        cleaned_text = clean_text_content(
+                            source.extracted_text,
+                            content_type=source.content_type,
+                            deadline=overall_deadline,
+                        )
+                    except (TimeoutError, asyncio.TimeoutError):
+                        timed_out = True
+                        source = source.model_copy(
+                            update={
+                                "status": SourceFetchState.INACCESSIBLE,
+                                "error_message": f"TIMEOUT: Research deadline of {settings.research_timeout_seconds}s exceeded during parsing.",
+                                "extracted_text": None,
+                                "raw_text": raw_sample,
+                                "extraction_note": "Parsing timed out.",
+                            }
+                        )
+                        retrieved_sources.append(source)
+                        break
+
                     if cleaned_text:
                         source = source.model_copy(
                             update={
@@ -248,13 +306,19 @@ class ResearchOrchestrator:
                                 "extraction_note": f"MIME {source.content_type or 'unknown'}; normalized length {len(cleaned_text)} chars from {len(source.extracted_text)} raw chars.",
                             }
                         )
-                        passages = extract_candidate_passages(
-                            source=source,
-                            claim_id=req.claim_id,
-                            claim_text=req.claim_text,
-                            location=req.explicit_location,
-                            date=req.explicit_date,
-                        )
+                        try:
+                            passages = extract_candidate_passages(
+                                source=source,
+                                claim_id=req.claim_id,
+                                claim_text=req.claim_text,
+                                location=req.explicit_location,
+                                date=req.explicit_date,
+                                deadline=overall_deadline,
+                            )
+                        except (TimeoutError, asyncio.TimeoutError):
+                            timed_out = True
+                            passages = []
+
                         for passage in passages:
                             if verify_passage_provenance(passage, source):
                                 candidate_passages.append(passage)
@@ -279,6 +343,10 @@ class ResearchOrchestrator:
         except asyncio.CancelledError:
             raise
 
+        # Monotonic post-execution deadline check to ensure over-budget runs are never labeled ordinary success
+        if time.monotonic() > overall_deadline:
+            timed_out = True
+
         completed_seconds = round(time.monotonic() - start_time, 2)
         retrieved_count = sum(1 for s in retrieved_sources if s.status == SourceFetchState.RETRIEVED)
 
@@ -302,6 +370,12 @@ class ResearchOrchestrator:
                 f"Gathered {len(search_hits)} candidate search hit(s); "
                 f"fetched {retrieved_count} of {len(distinct_urls)} candidate page(s)."
             )
+        elif search_error:
+            status_msg = (
+                f"Search provider unavailable ({search_error}). "
+                f"Fetched {retrieved_count} of {len(distinct_urls)} candidate page(s) from supplied source URL "
+                f"in {completed_seconds}s."
+            )
         else:
             status_msg = (
                 f"Gathered {len(search_hits)} candidate search hit(s); "
@@ -319,4 +393,5 @@ class ResearchOrchestrator:
             researched_at=now_iso,
             status_message=status_msg,
             completed_in_seconds=completed_seconds,
+            search_failure_message=search_error,
         )

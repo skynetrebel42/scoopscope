@@ -332,21 +332,22 @@
             if (researchSeq !== activeResearchSeq) return;
             showResearchError(container, "Network error", "Could not complete research request. Is the server running?");
         } finally {
-            if (activeResearchClaimId === claim.id) {
+            if (researchSeq === activeResearchSeq && activeResearchClaimId === claim.id) {
                 activeResearchClaimId = null;
             }
             const loading = container.querySelector(".research-loading-state");
-            if (loading && researchSeq !== activeResearchSeq) {
+            if (loading) {
                 loading.remove();
             }
-            // Only re-enable the button if this research action is still current and snapshot is not outdated
-            if (researchSeq === activeResearchSeq && !document.getElementById("claims-outdated-banner")) {
-                button.disabled = false;
-                button.textContent = "Find sources";
-            } else if (document.getElementById("claims-outdated-banner")) {
+            // Restore button state: disabled with title if snapshot is outdated, otherwise enabled
+            if (document.getElementById("claims-outdated-banner")) {
                 button.disabled = true;
                 button.textContent = "Find sources";
                 button.title = "Input has changed. Submit to re-extract claims before researching.";
+            } else {
+                button.disabled = false;
+                button.textContent = "Find sources";
+                button.removeAttribute("title");
             }
         }
     }
@@ -383,6 +384,20 @@
         statsRow.style.color = "var(--text-primary)";
         statsRow.textContent = data.status_message;
         summaryBar.appendChild(statsRow);
+
+        if (data.search_failure_message) {
+            const failBanner = document.createElement("div");
+            failBanner.className = "notice-banner";
+            failBanner.style.borderColor = "var(--error-border)";
+            failBanner.style.background = "var(--error-bg)";
+            failBanner.style.color = "var(--error-text)";
+            failBanner.style.marginTop = "0.5rem";
+            const strong = document.createElement("strong");
+            strong.textContent = "Search provider unavailable: ";
+            failBanner.appendChild(strong);
+            failBanner.appendChild(document.createTextNode(data.search_failure_message));
+            summaryBar.appendChild(failBanner);
+        }
 
         if (data.queries_used && data.queries_used.length > 0) {
             const queryRow = document.createElement("div");
@@ -426,7 +441,11 @@
         if (!data.search_hits || data.search_hits.length === 0) {
             const noHits = document.createElement("p");
             noHits.className = "hit-snippet";
-            noHits.textContent = "No search hits returned by search provider.";
+            if (data.search_failure_message) {
+                noHits.textContent = `Search unavailable: ${data.search_failure_message}`;
+            } else {
+                noHits.textContent = "No search hits returned by search provider.";
+            }
             hitsList.appendChild(noHits);
         } else {
             data.search_hits.forEach((hit) => {

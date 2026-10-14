@@ -162,3 +162,4 @@ class ResearchResponse(BaseModel):
     )
     status_message: str
     completed_in_seconds: float
+    search_failure_message: Optional[str] = None
