@@ -52,7 +52,7 @@ Before implementing URL fetching, the implementation must include:
 
 ## Development Workflow
 
-1. All code under `c:\Users\minhb\Projects\ScoopScope\`.
+1. All code under `c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope\`.
 2. Backend: `backend/` — Python, FastAPI, uvicorn.
 3. Frontend: `frontend/` — plain HTML/CSS/JS, served by FastAPI as static files.
 4. Tests: `backend/tests/` — pytest, runnable without credentials where possible.

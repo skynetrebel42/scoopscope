@@ -3,7 +3,7 @@ r"""Live validation script for ScoopScope Milestone 1.
 Run AFTER configuring GEMINI_API_KEY in backend/.env.
 
 Usage:
-    cd c:\Users\minhb\Projects\ScoopScope\backend
+    cd c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope\backend
     .venv\Scripts\python.exe -m tests.live_validation
 
 This script:

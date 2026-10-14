@@ -17,7 +17,7 @@ claims back — with original wording, classification, and extracted metadata.
 ## Setup (Windows)
 
 ```powershell
-cd c:\Users\minhb\Projects\ScoopScope\backend
+cd c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope\backend
 
 # Create virtual environment
 py -3 -m venv .venv
@@ -54,7 +54,7 @@ copy .env.example .env
 ## Running
 
 ```powershell
-cd c:\Users\minhb\Projects\ScoopScope\backend
+cd c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope\backend
 .venv\Scripts\Activate.ps1
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
@@ -64,7 +64,7 @@ Open <http://127.0.0.1:8000> in your browser.
 ## Running Tests
 
 ```powershell
-cd c:\Users\minhb\Projects\ScoopScope\backend
+cd c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope\backend
 .venv\Scripts\Activate.ps1
 python -m pytest tests/ -v
 ```
