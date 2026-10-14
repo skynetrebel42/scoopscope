@@ -133,13 +133,23 @@ async def run_live_smoke():
             assert sliced == p["exact_passage"], f"Provenance mismatch! Sliced: '{sliced}' vs Exact: '{p['exact_passage']}'"
             print(f"      Provenance check: VERIFIED EXACT SUBSTRING MATCH ({len(sliced)} chars)")
 
+        # Verify research completed within overall 90-second deadline
+        assert elapsed <= 90.0, f"Elapsed time {elapsed}s exceeded 90-second overall research deadline"
+
+        # Verify nonempty evidence retrieval for the live assertion
+        assert len(hits) >= 1, "Expected at least 1 search hit for known factual query"
+        assert len(sources) >= 1, "Expected at least 1 retrieved candidate source"
+        assert len(passages) >= 1, "Expected at least 1 verbatim candidate passage extracted"
+        retrieved_sources = [s for s in sources if s["status"] == "retrieved"]
+        assert len(retrieved_sources) >= 1, "Expected at least 1 source with status == RETRIEVED"
+
         # Verify zero verdict fields exist in payload
         assert "verdict" not in data, "Verdict must not be present in Milestone 2C"
         assert "truth_score" not in data, "Truth score must not be present in Milestone 2C"
         assert "confidence" not in data, "Confidence must not be present in Milestone 2C"
 
         print("\n" + "=" * 60)
-        print("LIVE SMOKE INVESTIGATION: SUCCESSFUL AND FULLY VERIFIED")
+        print(f"LIVE SMOKE INVESTIGATION: SUCCESSFUL AND FULLY VERIFIED ({elapsed}s, {len(retrieved_sources)} source(s), {len(passages)} passage(s))")
         print("=" * 60)
 
 

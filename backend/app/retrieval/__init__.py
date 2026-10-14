@@ -14,6 +14,7 @@ from app.retrieval.safe_fetcher import (
 )
 from app.retrieval.passage_extractor import (
     clean_html_to_text,
+    clean_text_content,
     deduplicate_urls,
     extract_candidate_passages,
     verify_passage_provenance,
@@ -29,6 +30,7 @@ __all__ = [
     "SafeNetworkBackend",
     "SSRFBlockedError",
     "clean_html_to_text",
+    "clean_text_content",
     "deduplicate_urls",
     "extract_candidate_passages",
     "is_public_ip",

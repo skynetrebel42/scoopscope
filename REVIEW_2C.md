@@ -1,4 +1,4 @@
-# Milestone 2C Review & Verification Report
+# Milestone 2C Review & Verification Report (Post-Review Repair Pass)
 
 Last updated: 2026-10-14
 Milestone: 2C — Real Search Provider, Bounded Retrieval, and Inspectable Candidate Passages
@@ -7,10 +7,11 @@ Milestone: 2C — Real Search Provider, Bounded Retrieval, and Inspectable Candi
 
 ## 1. Environment & Git Status
 
-- **Canonical Workspace & Git Root**: `C:/Users/minhb/OneDrive/Desktop/Projects/ScoopScope`
-- **Current HEAD**: `b1809557a5367839ad74e98f7e2c918ecaa3aa9e` (branch `master`)
+- **Canonical Workspace & Git Root**: `c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope\`
+- **Current HEAD**: `5eb71d910f48a031e41875ba89134a98f9f21b1c` (branch `master`)
 - **Milestone Baseline**: `713a134` (Milestone 2B checkpoint)
-- **Working Tree Status**: Clean (no uncommitted or untracked changes, excluding git-ignored files).
+- **Previous Review Snapshot**: `ae832bfe465f3e624a4a93706c1623e2fd85689c`
+- **Working Tree Status**: Repaired and verified clean.
 - **Secret Protection**: `.env` and `backend/.env` are git-ignored and strictly excluded from git tracking. No API keys or tokens are committed or displayed.
 
 ---
@@ -23,8 +24,8 @@ backend\.venv\Scripts\python.exe -m pytest backend/tests -v
 ```
 
 ### Final Results
-- **Outcome**: **106 passed**, 0 failed, 0 skipped, 2 deprecation warnings in dependencies (`google.genai.types` and `starlette.testclient`).
-- **Duration**: ~29.2 seconds across all unit, integration, and security checks.
+- **Outcome**: **115 passed**, 0 failed, 0 skipped, 2 deprecation warnings in dependencies (`google.genai.types` and `starlette.testclient`).
+- **Duration**: ~30.3 seconds across all unit, integration, and security checks.
 
 ### Headless Browser Ordering & State Test Command
 ```powershell
@@ -32,39 +33,57 @@ backend\.venv\Scripts\python.exe -m pytest backend/tests/test_frontend_ordering.
 ```
 
 ### Browser Test Results
-- **Outcome**: **1 passed** (50 assertions passed, 0 failures in 0.55s).
+- **Outcome**: **1 passed** (65 browser assertions passed across 8 tests, 0 failures in 1.18s).
 - **Browser Executable**: `C:\Program Files\Google\Chrome\Application\chrome.exe` (`--headless=new`).
 
 ### Test Suite Breakdown
 
 | Test File | Tests | Focus Area | Status |
 |---|---|---|---|
-| `backend/tests/test_safe_fetcher.py` | 62 | IP validation (SSRF, CGNAT, IPv4-mapped IPv6), socket destination pinning, DNS rebinding prevention, 3-hop redirect limit, 1MB size limit, MIME whitelist | PASSED |
+| `backend/tests/test_safe_fetcher.py` | 65 | IP ranges, IPv4-mapped IPv6, CGNAT, scheme/standard & bad port/credential validation (R3), public success, private/loopback rejection, public-to-private redirect block, DNS rebinding block, 3-hop redirect limit, MIME rejection, 1MB size limit, cancellable deadline and slow DNS enforcement with elapsed bounds (R2), socket connection enforcement | PASSED |
 | `backend/tests/test_extraction.py` | 14 | Claim extraction, validation, error mapping, unique ID generation | PASSED |
 | `backend/tests/test_serper_provider.py` | 12 | Serper API contract, 401/403/429 status mapping, bounded 5xx retries, outbound attempt accounting, secret redaction | PASSED |
 | `backend/tests/test_search_contract.py` | 9 | `SearchProvider` Protocol, `SearchResultHit` snippet immutability, date/dependence defaults, query generation | PASSED |
-| `backend/tests/test_passage_extractor.py` | 5 | Script/style stripping, entity decoding, exact substring offsets, provenance verification, URL deduplication | PASSED |
-| `backend/tests/test_research_endpoint.py` | 3 | End-to-end orchestrator flow, candidate page budget cap (3), partial fetch failures, 503 on missing credentials | PASSED |
-| `backend/tests/test_frontend_ordering.py` | 1 (50 asserts) | In-browser state ownership, sequence protection, stale result discard, Try Again recovery, research action, inert rendering | PASSED |
-| **Total** | **106 passed** | **Zero failures** | **ALL PASSED** |
+| `backend/tests/test_passage_extractor.py` | 9 | Script/style stripping, entity decoding (single decode R1), exact substring offsets, provenance verification, URL deduplication, void element handling (<embed> R1), table cell number separation (R1), plain-text MIME preservation (<exception> R1) | PASSED |
+| `backend/tests/test_research_endpoint.py` | 5 | Orchestrator flow with mock provider & fetcher (injected DNS R5), candidate page budget cap (3), partial fetch failures, 503 on missing credentials, cancellable orchestrator deadline enforcement (R2), malformed port error isolation (R3) | PASSED |
+| `backend/tests/test_frontend_ordering.py` | 1 (65 asserts) | In-browser state ownership, sequence protection, stale result discard, Try Again recovery, research action, input/URL modification invalidation (R4), inert rendering | PASSED |
+| **Total** | **115 passed** | **Zero failures** | **ALL PASSED** |
 
 ---
 
-## 3. Skipped Tests & Assertion Audit
+## 3. Summary of Code Review Repairs (R1–R5)
 
-- **Skipped Tests**: **0** (No tests were skipped).
-- **Weakened or Removed Assertions**: **0** (No existing assertions were weakened or deleted).
-- **New Assertions Added in Milestone 2C**:
-  - 15 new assertions in `test_frontend_ordering.py` verifying:
-    1. "Find sources" button initialization and state transitions.
-    2. Snippet badge rendering and separation from retrieved body text.
-    3. Programmatic candidate passage rendering with exact verbatim matching.
-    4. Destination IP audit metadata display.
-    5. Invalidation and discard of stale research jobs on user input changes.
-    6. Inert text rendering preventing XSS execution (`<script>` payloads).
-  - 12 new tests in `test_serper_provider.py`.
-  - 5 new tests in `test_passage_extractor.py`.
-  - 3 new tests in `test_research_endpoint.py`.
+### R1. Source Cleaning and Fidelity Preserved
+- **Void Element Handling**: Added `HTML5_VOID_TAGS` (`embed`, `hr`, `br`, `img`, `input`, etc.) to prevent void elements from altering `_ignore_depth`. Text following `<embed>` (e.g. corrections) is retained.
+- **Table Cell Boundaries**: Added `TABLE_CELL_TAGS` (`td`, `th`) in `HTMLTextExtractor` to insert space delimiters so distinct numbers across table cells (e.g. `2022` and `43`) do not merge into `202243`.
+- **Single Entity Decode**: Removed redundant second `html.unescape()` call in `get_text()`, allowing `HTMLParser(convert_charrefs=True)` to decode entities once and preserving literal text such as `&amp;lt;warning&amp;gt;` as `&lt;warning&gt;`.
+- **MIME-Aware Cleaner**: Created `clean_text_content(content, content_type)`. For `text/plain`, angle-bracketed text like `Rule: <exception>` is preserved verbatim without stripping.
+- **Inspectable Provenance**: Added `raw_text: str | None` (bounded to first 5,000 characters of raw downloaded content) and `extraction_note: str | None` to `RetrievedSource` for extraction auditability.
+
+### R2. Cancellable Deadlines Enforced
+- **SafeFetcher**: Wrapped `fetch()` in an overall cancellable `async with asyncio.timeout(...)`. When DNS or transport hangs, the operation is cancelled cleanly and returns a structured timeout result without extending the deadline. Added `test_safe_fetcher_enforces_deadline_on_slow_dns` asserting elapsed cancellation < 0.15s.
+- **ResearchOrchestrator**: Wrapped `research_claim` execution in `async with asyncio.timeout(...)` and provider search in `asyncio.wait_for`. Removed `max(1.0, remaining)` fallback; now uses `min(30.0, remaining)`. Preserves partial results if deadline fires and marks `status_message` with timeout diagnostics. Tested via `test_research_orchestrator_enforces_cancellable_deadline` asserting elapsed time.
+
+### R3. Malformed URL/Port Isolation and Request Bounds
+- **Port Syntax Handling**: Wrapped `parsed.port` and `parsed.hostname` in `validate_url_syntax` with `try...except ValueError` to catch non-integer and out-of-range ports (`:bad`, `:99999`) and convert them into `SafeFetchError`.
+- **Candidate Isolation**: Wrapped per-candidate fetches in try/except (preserving `asyncio.CancelledError`) so unexpected retrieval failures mark that individual source as `INACCESSIBLE` and do not abort the research request or return HTTP 500.
+- **Request Bounds**: Added explicit length limits to `ResearchRequest` (`claim_text` max 5000 chars, `source_url` max 4096 chars, `submission_id` and `claim_id` max 200 chars).
+
+### R4. Input and URL Edits Invalidate Stale Extraction and Research
+- **Input Edit Handlers**: In `frontend/app.js`, both `inputText` and `sourceUrl` input events trigger `handleInputEdit()`, which:
+  1. Increments `currentSubmissionSeq++` to discard in-flight extraction responses.
+  2. Resets `setLoading(false)` on extraction button.
+  3. Increments `activeResearchSeq++` and clears `activeResearchClaimId`.
+  4. Marks any displayed claims snapshot outdated with an explicit notice banner and disables research buttons (`button.disabled = true; button.title = ...`).
+  5. Cleans up in-flight research loading spinners.
+- **Research Finally Cleanup**: `executeResearch` `finally` block verifies state ownership before restoring button state. If the research sequence was superseded or the snapshot is outdated, it does not re-enable the button.
+- **Browser Validation**: Comprehensive Test 7 in `frontend/test_runner.html` tests edit-during-extraction, URL-only edits, and edit-during-research with delayed responses.
+
+### R5. Test Harness and Fixture Repairs
+- **HTTPX Response Fixtures**: Replaced `html=` with standard `text=` in `test_safe_fetcher.py`.
+- **DNS Resolver Injection**: Injected mock DNS resolver into `test_research_endpoint.py` so offline orchestrator tests do not touch system DNS.
+- **Elapsed Time Assertions**: Added monotonic timing checks to safe fetcher and orchestrator deadline tests.
+- **Live Smoke Assertions**: Updated `live_smoke_investigation.py` to assert elapsed time <= 90s, at least 1 retrieved source, at least 1 extracted passage, and outbound search attempt bounds.
 
 ---
 
@@ -105,22 +124,16 @@ The browser test harness in `backend/tests/test_frontend_ordering.py` and `front
 
 ## 6. Live Validation Status (Separated from Fixture Results)
 
-### Fixture-Based Verification (Completed & Passing)
+### Fixture-Based Verification (Completed & Passing on Repaired Code)
 - Serper response parsing, rank preservation, and 5-hit cap verified with mock JSON payloads.
 - Status code mappings (401, 403, 429, 500) and retry boundaries verified via `httpx.MockTransport`.
 - SSRF defenses (CGNAT, loopback, private ranges, IPv4-mapped IPv6, DNS rebinding, redirect hops) verified via socket-level mock transports.
-- Verbatim character offset slicing and HTML tag stripping verified on HTML fixtures.
+- Verbatim character offset slicing, void element preservation, table cell separation, entity decoding, and plain-text body preservation verified on HTML/text fixtures.
+- Cancellable deadline enforcement verified under slow DNS and slow search provider simulations with elapsed time bounds.
+- 115 pytest tests and 65 headless browser assertions passing with zero failures.
 
-## 6. Live Validation Status (Separated from Fixture Results)
-
-### Fixture-Based Verification (Completed & Passing)
-- Serper response parsing, rank preservation, and 5-hit cap verified with mock JSON payloads.
-- Status code mappings (401, 403, 429, 500) and retry boundaries verified via `httpx.MockTransport`.
-- SSRF defenses (CGNAT, loopback, private ranges, IPv4-mapped IPv6, DNS rebinding, redirect hops) verified via socket-level mock transports.
-- Verbatim character offset slicing and HTML tag stripping verified on HTML fixtures.
-
-### Live Smoke Investigation (COMPLETED & VERIFIED)
-Executed with user-confirmed free credits within all mandated limits:
+### Prior Live Smoke Investigation (Historical Builder Evidence)
+Executed with user-confirmed free credits within all mandated limits prior to this repair pass:
 - **Test Statement**: `"Mayor Karen Bass took office in December 2022 as the 43rd Mayor of Los Angeles."`
 - **Extracted Claim**: `"Karen Bass took office as the 43rd Mayor of Los Angeles in December 2022."` (factual, Los Angeles, December 2022).
 - **Search Query Executed**: Exactly **1** query sent to Serper (`primary_assertion`), consuming 1 of the 2 allowed outbound search requests.

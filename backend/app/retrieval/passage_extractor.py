@@ -25,8 +25,8 @@ from app.search.models import (
     SourceFetchState,
 )
 
-# Non-content tags to ignore completely
-IGNORE_TAGS = {
+# Non-content container tags whose inner text should be ignored completely
+IGNORE_CONTAINER_TAGS = {
     "script",
     "style",
     "noscript",
@@ -35,9 +35,26 @@ IGNORE_TAGS = {
     "template",
     "iframe",
     "object",
-    "embed",
     "select",
     "button",
+}
+
+# Standard HTML5 void elements that cannot have end tags or child text
+HTML5_VOID_TAGS = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
 }
 
 # Block-level tags that imply paragraph breaks
@@ -62,6 +79,16 @@ BLOCK_TAGS = {
     "tr",
     "br",
     "hr",
+    "table",
+    "tbody",
+    "thead",
+    "tfoot",
+}
+
+# Table cell tags that require boundaries to avoid merging adjacent cell values
+TABLE_CELL_TAGS = {
+    "td",
+    "th",
 }
 
 STOPWORDS = {
@@ -89,40 +116,51 @@ STOPWORDS = {
 
 
 class HTMLTextExtractor(HTMLParser):
-    """Safe HTML to plaintext converter without executing scripts or styles."""
+    """Safe HTML to plaintext converter without executing scripts or styles.
+    
+    Adheres to:
+    - convert_charrefs=True: HTMLParser automatically decodes character references
+      once during parsing. No second unescape is performed, preserving literal source text.
+    - Void elements never increment ignore depth.
+    - Table cell boundaries insert spaces so distinct numbers/values do not merge.
+    """
 
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(convert_charrefs=True)
         self._ignore_depth = 0
         self._chunks: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag_lower = tag.lower()
-        if tag_lower in IGNORE_TAGS:
+        # Void elements cannot have children; never increment ignore depth
+        if tag_lower in IGNORE_CONTAINER_TAGS and tag_lower not in HTML5_VOID_TAGS:
             self._ignore_depth += 1
         elif tag_lower in BLOCK_TAGS:
             self._chunks.append("\n\n")
+        elif tag_lower in TABLE_CELL_TAGS:
+            self._chunks.append(" ")
 
     def handle_endtag(self, tag: str) -> None:
         tag_lower = tag.lower()
-        if tag_lower in IGNORE_TAGS:
+        if tag_lower in IGNORE_CONTAINER_TAGS and tag_lower not in HTML5_VOID_TAGS:
             self._ignore_depth = max(0, self._ignore_depth - 1)
         elif tag_lower in BLOCK_TAGS:
             self._chunks.append("\n\n")
+        elif tag_lower in TABLE_CELL_TAGS:
+            self._chunks.append(" ")
 
     def handle_data(self, data: str) -> None:
         if self._ignore_depth == 0:
             self._chunks.append(data)
 
     def get_text(self) -> str:
+        # Note: HTMLParser(convert_charrefs=True) has already unescaped entities once.
+        # Do NOT call html.unescape() a second time here, as it would double-decode
+        # literal source text like &amp;lt; into <.
         raw_text = "".join(self._chunks)
-        # Decode entities and normalize spaces
-        unescaped = html.unescape(raw_text)
-        # Split into paragraphs and normalize each paragraph
         paragraphs: list[str] = []
-        for block in unescaped.split("\n\n"):
+        for block in raw_text.split("\n\n"):
             normalized_block = re.sub(r"[ \t\r\f\v]+", " ", block).strip()
-            # If paragraph has substantive content, keep it
             if normalized_block:
                 paragraphs.append(normalized_block)
 
@@ -142,8 +180,30 @@ def clean_html_to_text(html_content: str) -> str:
         # Fallback regex strip if parser hits deeply malformed markup
         stripped = re.sub(r"(?is)<(script|style|noscript|svg)[^>]*>.*?</\1>", " ", html_content)
         stripped = re.sub(r"<[^>]+>", " ", stripped)
-        unescaped = html.unescape(stripped)
-        return re.sub(r"\s+", " ", unescaped).strip()
+        return re.sub(r"\s+", " ", stripped).strip()
+
+
+def clean_text_content(content: str, content_type: str | None = None) -> str:
+    """MIME-aware content cleaner.
+    
+    - For text/plain: preserves angle-bracketed text and literal text directly,
+      normalizing paragraph spacing without HTML tag stripping.
+    - For HTML/XHTML: safely parses DOM tree, strips scripts/styles, respects void tags,
+      preserves cell boundaries, and unescapes entities exactly once.
+    """
+    if not content:
+        return ""
+    ct = (content_type or "").lower()
+    if "text/plain" in ct:
+        # Plain text: normalize whitespace and paragraph breaks without HTML stripping
+        paragraphs: list[str] = []
+        for block in content.split("\n\n"):
+            normalized_block = re.sub(r"[ \t\r\f\v]+", " ", block).strip()
+            if normalized_block:
+                paragraphs.append(normalized_block)
+        return "\n\n".join(paragraphs) if paragraphs else content.strip()
+
+    return clean_html_to_text(content)
 
 
 def deduplicate_urls(urls: list[str]) -> list[str]:

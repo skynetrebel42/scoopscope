@@ -34,17 +34,52 @@
     let activeResearchSeq = 0;
     let activeResearchClaimId = null;
 
+    // --- Input edit invalidation (R4) ---
+    function handleInputEdit() {
+        // 1. Invalidate pending extraction so in-flight responses are discarded
+        currentSubmissionSeq++;
+        // 2. Clear extraction loading state
+        setLoading(false);
+        // 3. Invalidate active research ownership
+        activeResearchSeq++;
+        activeResearchClaimId = null;
+        // 4. Mark existing rendered claims snapshot as outdated and disable research actions
+        markSnapshotOutdated();
+    }
+
+    function markSnapshotOutdated() {
+        if (!resultsSection.classList.contains("hidden")) {
+            let staleBanner = document.getElementById("claims-outdated-banner");
+            if (!staleBanner) {
+                staleBanner = document.createElement("div");
+                staleBanner.id = "claims-outdated-banner";
+                staleBanner.className = "notice-banner notice-snippet-only";
+                staleBanner.style.borderColor = "var(--border-color)";
+                staleBanner.style.background = "var(--surface-color)";
+                staleBanner.style.marginBottom = "1rem";
+                staleBanner.innerHTML = "<strong>Draft edited:</strong> Input text or source URL has changed. These claims belong to the previous submission. Re-submit to research your updated draft.";
+                resultsSection.insertBefore(staleBanner, resultsSection.firstChild);
+            }
+            // Disable all research buttons on this outdated snapshot
+            const researchBtns = claimsList.querySelectorAll(".btn-research");
+            researchBtns.forEach(btn => {
+                btn.disabled = true;
+                btn.title = "Input has changed. Submit to re-extract claims before researching.";
+            });
+            // Clear any active research loading indicators
+            const loadingStates = claimsList.querySelectorAll(".research-loading-state");
+            loadingStates.forEach(el => el.remove());
+        }
+    }
+
     // --- Character counter & input changes ---
     inputText.addEventListener("input", () => {
         charCount.textContent = inputText.value.length.toLocaleString();
-        // Changing input invalidates any active research ownership
-        activeResearchSeq++;
-        activeResearchClaimId = null;
+        handleInputEdit();
     });
 
     sourceUrl.addEventListener("input", () => {
-        activeResearchSeq++;
-        activeResearchClaimId = null;
+        handleInputEdit();
     });
 
     // --- Error handling ---
@@ -87,6 +122,11 @@
     function renderResults(data, seq) {
         if (seq !== currentSubmissionSeq) {
             return;
+        }
+
+        const staleBanner = document.getElementById("claims-outdated-banner");
+        if (staleBanner) {
+            staleBanner.remove();
         }
 
         currentSubmissionId = data.submission_id || null;
@@ -292,14 +332,21 @@
             if (researchSeq !== activeResearchSeq) return;
             showResearchError(container, "Network error", "Could not complete research request. Is the server running?");
         } finally {
-            button.disabled = false;
-            button.textContent = "Find sources";
             if (activeResearchClaimId === claim.id) {
                 activeResearchClaimId = null;
             }
             const loading = container.querySelector(".research-loading-state");
             if (loading && researchSeq !== activeResearchSeq) {
                 loading.remove();
+            }
+            // Only re-enable the button if this research action is still current and snapshot is not outdated
+            if (researchSeq === activeResearchSeq && !document.getElementById("claims-outdated-banner")) {
+                button.disabled = false;
+                button.textContent = "Find sources";
+            } else if (document.getElementById("claims-outdated-banner")) {
+                button.disabled = true;
+                button.textContent = "Find sources";
+                button.title = "Input has changed. Submit to re-extract claims before researching.";
             }
         }
     }
@@ -690,6 +737,8 @@
             showError,
             hideError,
             setLoading,
+            handleInputEdit,
+            markSnapshotOutdated,
         };
     }
 })();

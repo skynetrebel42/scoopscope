@@ -82,6 +82,8 @@ class RetrievedSource(BaseModel):
     fetched_at: str = Field(description="ISO 8601 UTC timestamp")
     error_message: str | None = None
     extracted_text: str | None = None
+    raw_text: str | None = Field(default=None, description="Bounded raw decoded source representation before cleaning (up to 1MB)")
+    extraction_note: str | None = Field(default=None, description="Audit notes describing normalization and cleaning applied")
 
 
 class SourceDependence(str, Enum):

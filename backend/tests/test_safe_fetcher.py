@@ -113,6 +113,8 @@ def test_url_syntax_permits_standard_http_https():
         ("http://example.com:8080/page", "Non-standard HTTP port"),
         ("https://example.com:8443/page", "Non-standard HTTPS port"),
         ("http://example.com:22/page", "Non-standard HTTP port"),
+        ("https://example.com:bad/path", "Invalid port"),
+        ("https://example.com:99999/path", "Invalid port"),
         ("http:///empty-host", "valid hostname"),
     ],
 )
@@ -133,7 +135,7 @@ async def test_safe_fetcher_public_success():
         return httpx.Response(
             200,
             headers={"Content-Type": "text/html; charset=utf-8"},
-            html="<html><body><h1>Los Angeles Homeless Count</h1><p>Facts here.</p></body></html>",
+            text="<html><body><h1>Los Angeles Homeless Count</h1><p>Facts here.</p></body></html>",
         )
 
     transport = httpx.MockTransport(mock_handler)
@@ -384,7 +386,7 @@ async def test_safe_fetcher_aborts_stream_exceeding_1mb():
 async def test_safe_fetcher_enforces_overall_deadline():
     async def slow_handler(request: httpx.Request) -> httpx.Response:
         await asyncio.sleep(0.5)
-        return httpx.Response(200, headers={"Content-Type": "text/html"}, html="<p>slow</p>")
+        return httpx.Response(200, headers={"Content-Type": "text/html"}, text="<p>slow</p>")
 
     transport = httpx.MockTransport(slow_handler)
     fetcher = SafeFetcher(
@@ -393,10 +395,36 @@ async def test_safe_fetcher_enforces_overall_deadline():
         custom_transport=transport,
     )
 
+    t0 = time.monotonic()
     result = await fetcher.fetch("https://example.org/slow")
+    elapsed = time.monotonic() - t0
+
     assert result.status == SourceFetchState.INACCESSIBLE
     assert "TIMEOUT" in (result.error_message or "")
     assert result.extracted_text is None
+    # Must abort near the 100ms deadline, well before the 500ms sleep completes
+    assert elapsed < 0.35, f"Elapsed time {elapsed:.3f}s exceeded expected deadline tolerance"
+
+
+@pytest.mark.anyio
+async def test_safe_fetcher_enforces_deadline_on_slow_dns():
+    """Verify that slow DNS resolution is cancelled within overall_timeout_seconds."""
+    async def slow_dns(hostname: str) -> list[str]:
+        await asyncio.sleep(0.2)
+        return ["93.184.216.34"]
+
+    fetcher = SafeFetcher(
+        overall_timeout_seconds=0.05,  # 50ms deadline vs 200ms DNS
+        dns_resolver=slow_dns,
+    )
+
+    t0 = time.monotonic()
+    result = await fetcher.fetch("https://example.org/page")
+    elapsed = time.monotonic() - t0
+
+    assert result.status == SourceFetchState.INACCESSIBLE
+    assert "TIMEOUT" in (result.error_message or "")
+    assert elapsed < 0.15, f"DNS cancellation took too long: {elapsed:.3f}s"
 
 
 # ---------------------------------------------------------------------------

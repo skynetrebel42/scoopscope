@@ -525,16 +525,19 @@
             assert(researchContainer6.textContent.includes("IP: 93.184.216.34"), "Audit IP rendered");
 
             // -------------------------------------------------------------
-            // TEST 7: Discarding stale research response on re-submission
+            // TEST 7: Input and URL edits invalidate pending extraction & active research (R4)
             // -------------------------------------------------------------
-            log("\n--- TEST 7: Discarding stale research response on re-submission ---");
+            log("\n--- TEST 7: Input and URL edits invalidate pending extraction & active research (R4) ---");
 
-            const claimId7 = "claim-m2c-002";
+            // 7A: Edit during extraction - late extraction response must be discarded
+            let resolveLateExtraction;
+            const lateExtractionPromise = new Promise(r => { resolveLateExtraction = r; });
             mockQueue.push(async (b) => {
+                await lateExtractionPromise;
                 return createSuccessResponse(b.text, [{
-                    id: claimId7,
-                    original_wording: "Claim for stale testing.",
-                    normalized_assertion: "Claim for stale testing.",
+                    id: "claim-late-a",
+                    original_wording: "Late wording A",
+                    normalized_assertion: "Late assertion A",
                     claim_type: "factual",
                     explicit_date: null,
                     explicit_location: null,
@@ -543,18 +546,114 @@
                 }]);
             });
 
-            inputText.value = "New text for stale test";
+            inputText.value = "Original Statement A";
+            window.__ScoopScope.executeSubmission();
+            assert(submitBtn.classList.contains("loading"), "Loading state active for in-flight extraction A");
+
+            // User edits input textbox while extraction is pending
+            inputText.value = "Edited Statement B";
+            inputText.dispatchEvent(new Event("input"));
+            assert(!submitBtn.classList.contains("loading"), "Loading state cleared immediately when input is edited");
+
+            // Late extraction resolves
+            resolveLateExtraction();
+            await delay(50);
+            // Verify late extraction A was discarded and NOT rendered
+            assert(submittedText.textContent !== "Original Statement A", "Late extraction A text must NOT be rendered");
+
+            // 7B: URL-only edits invalidate rendered snapshot and disable research
+            const claimId7 = "claim-m2c-url-edit";
+            mockQueue.push(async (b) => {
+                return createSuccessResponse(b.text, [{
+                    id: claimId7,
+                    original_wording: "Original Claim for URL edit test",
+                    normalized_assertion: "Original Claim for URL edit test",
+                    claim_type: "factual",
+                    explicit_date: null,
+                    explicit_location: null,
+                    explicit_quantity: null,
+                    qualifications: null
+                }]);
+            });
+
+            inputText.value = "Statement for URL edit test";
+            sourceUrl.value = "https://example.com/initial-url";
             window.__ScoopScope.executeSubmission();
             await delay(50);
 
             const researchBtn7 = document.getElementById(`btn-research-${claimId7}`);
             assert(Boolean(researchBtn7), "Claim 7 research button exists");
+            assert(researchBtn7.disabled === false, "Research button is initially enabled");
+            assert(document.getElementById("claims-outdated-banner") === null, "No outdated banner initially");
 
-            // User modifies input text before clicking or while research is pending
-            inputText.value = "Changed input text during research";
+            // User edits sourceUrl only
+            sourceUrl.value = "https://example.com/new-url";
+            sourceUrl.dispatchEvent(new Event("input"));
+
+            assert(document.getElementById("claims-outdated-banner") !== null, "Outdated banner displayed on source URL edit");
+            assert(researchBtn7.disabled === true, "Research button disabled after source URL edit");
+            assert(window.__ScoopScope.activeResearchClaimId === null, "Active research claim reset on source URL edit");
+
+            // 7C: Edit during active research - late research response discarded and button remains disabled
+            // Re-submit so claims are fresh again
+            mockQueue.push(async (b) => {
+                return createSuccessResponse(b.text, [{
+                    id: "claim-m2c-research-edit",
+                    original_wording: "Claim for active research edit",
+                    normalized_assertion: "Claim for active research edit",
+                    claim_type: "factual",
+                    explicit_date: null,
+                    explicit_location: null,
+                    explicit_quantity: null,
+                    qualifications: null
+                }]);
+            });
+
+            window.__ScoopScope.executeSubmission();
+            await delay(50);
+
+            const researchBtn7C = document.getElementById("btn-research-claim-m2c-research-edit");
+            assert(Boolean(researchBtn7C), "Research button exists after re-submission");
+            assert(researchBtn7C.disabled === false, "Research button re-enabled on fresh submission");
+            assert(document.getElementById("claims-outdated-banner") === null, "Outdated banner cleared on fresh submission");
+
+            let resolveLateResearch;
+            const lateResearchPromise = new Promise(r => { resolveLateResearch = r; });
+            researchMockQueue.push(async (b) => {
+                await lateResearchPromise;
+                return createResearchResponse(b.submission_id, "claim-m2c-research-edit", [
+                    {
+                        result_id: "hit_stale",
+                        query_id: "qry_stale",
+                        claim_id: "claim-m2c-research-edit",
+                        url: "https://example.com/stale-hit",
+                        title: "Stale Hit",
+                        snippet: "Stale Snippet",
+                        rank: 1,
+                        engine: "mock",
+                        is_snippet_only: true
+                    }
+                ]);
+            });
+
+            researchBtn7C.click();
+            assert(researchBtn7C.disabled === true, "Research button disabled during active research");
+
+            // While research is in flight, user edits input
+            inputText.value = "Edited text while research running";
             inputText.dispatchEvent(new Event("input"));
 
-            assert(window.__ScoopScope.activeResearchClaimId === null, "Active research claim reset on input modification");
+            assert(document.getElementById("claims-outdated-banner") !== null, "Outdated banner shown when input edited during research");
+            assert(researchBtn7C.disabled === true, "Research button remains disabled after input edit");
+
+            // Late research resolves
+            resolveLateResearch();
+            await delay(50);
+
+            // Stale research results must NOT be rendered, and button must stay disabled
+            const container7C = document.getElementById("research-container-claim-m2c-research-edit");
+            assert(!container7C.textContent.includes("Stale Hit"), "Late research response must NOT be rendered on outdated snapshot");
+            assert(researchBtn7C.disabled === true, "Research button remains disabled after stale research resolves");
 
             // -------------------------------------------------------------
             // TEST 8: Safe inert text rendering of untrusted external content

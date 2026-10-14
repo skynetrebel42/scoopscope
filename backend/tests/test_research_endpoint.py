@@ -117,7 +117,10 @@ async def test_research_orchestrator_full_flow():
         return httpx.Response(403, text="Forbidden", headers={"Content-Type": "text/html"})
 
     mock_transport = httpx.MockTransport(mock_fetch_handler)
-    fetcher = SafeFetcher(custom_transport=mock_transport)
+    fetcher = SafeFetcher(
+        dns_resolver=lambda host: ["93.184.216.34"],
+        custom_transport=mock_transport,
+    )
 
     orchestrator = ResearchOrchestrator(search_provider=mock_search, fetcher=fetcher)
 
@@ -196,3 +199,102 @@ def test_missing_credentials_endpoint_returns_503(monkeypatch):
     data = res.json()
     assert "Search credentials not configured" in data["error"]
     assert "SERPER_API_KEY" in data["detail"]
+
+
+# ---------------------------------------------------------------------------
+# R2 Regressions: Orchestrator Cancellable Deadlines
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_research_orchestrator_enforces_cancellable_deadline(monkeypatch):
+    """R2: Slow search provider must be cancelled and timed out within deadline."""
+    import asyncio
+    import time
+
+    class SlowSearchBackend(SearchProvider):
+        async def search(self, query: str, max_results: int = 5):
+            await asyncio.sleep(0.3)
+            return []
+
+    from dataclasses import replace
+    monkeypatch.setattr("app.research.settings", replace(settings, research_timeout_seconds=0.05))
+
+    orchestrator = ResearchOrchestrator(
+        search_provider=SlowSearchBackend(),
+        fetcher=SafeFetcher(dns_resolver=lambda h: ["93.184.216.34"]),
+    )
+
+    req = ResearchRequest(
+        submission_id="sub_timeout",
+        claim_id="claim_timeout",
+        claim_text="Assertion with slow search",
+    )
+
+    t0 = time.monotonic()
+    response = await orchestrator.research_claim(req)
+    elapsed = time.monotonic() - t0
+
+    assert "TIMEOUT" in response.status_message
+    assert elapsed < 0.2, f"Orchestrator timeout took too long: {elapsed:.3f}s"
+
+
+# ---------------------------------------------------------------------------
+# R3 Regressions: Malformed Port Isolation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_malformed_port_does_not_abort_research():
+    """R3: Malformed port in candidate URL must be isolated without failing the request."""
+    mock_search = MockSearchBackend([
+        RawSearchResult(
+            title="Valid Source",
+            url="https://example.com/valid-article",
+            snippet="Valid snippet content.",
+            rank=1,
+            engine="mock",
+        ),
+        RawSearchResult(
+            title="Bad Port Source",
+            url="https://example.com:bad/path",
+            snippet="Bad port snippet.",
+            rank=2,
+            engine="mock",
+        ),
+        RawSearchResult(
+            title="Overflow Port Source",
+            url="https://example.com:99999/path",
+            snippet="Overflow port snippet.",
+            rank=3,
+            engine="mock",
+        ),
+    ])
+
+    async def mock_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<p>Valid article text here.</p>", headers={"Content-Type": "text/html"})
+
+    mock_transport = httpx.MockTransport(mock_handler)
+    fetcher = SafeFetcher(
+        dns_resolver=lambda h: ["93.184.216.34"],
+        custom_transport=mock_transport,
+    )
+
+    orchestrator = ResearchOrchestrator(search_provider=mock_search, fetcher=fetcher)
+
+    req = ResearchRequest(
+        submission_id="sub_r3",
+        claim_id="claim_r3",
+        claim_text="Valid article text here",
+    )
+
+    response = await orchestrator.research_claim(req)
+
+    # Valid source was retrieved
+    retrieved = [s for s in response.retrieved_sources if s.status == SourceFetchState.RETRIEVED]
+    assert len(retrieved) >= 1
+    assert "Valid article text here." in retrieved[0].extracted_text
+
+    # Bad port sources were isolated as INACCESSIBLE
+    inaccessible = [s for s in response.retrieved_sources if s.status == SourceFetchState.INACCESSIBLE]
+    assert len(inaccessible) >= 1
+    for s in inaccessible:
+        assert "INVALID_URL" in (s.error_message or "") or "port" in (s.error_message or "").lower()

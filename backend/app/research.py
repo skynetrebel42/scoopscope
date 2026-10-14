@@ -14,6 +14,7 @@ Per AGENTS.md, docs/evidence-search-design.md, and Milestone 2C:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -24,6 +25,7 @@ from app.config import settings
 from app.models import ResearchRequest, ResearchResponse
 from app.retrieval.passage_extractor import (
     clean_html_to_text,
+    clean_text_content,
     deduplicate_urls,
     extract_candidate_passages,
     extract_keywords_from_claim,
@@ -119,126 +121,193 @@ class ResearchOrchestrator:
         search_hits: list[SearchResultHit] = []
         retrieved_sources: list[RetrievedSource] = []
         candidate_passages: list[EvidencePassage] = []
+        distinct_urls: list[str] = []
+        timed_out = False
 
         provider = self._get_search_provider()
 
-        # Step 1: Generate and execute search queries (at most 2 queries)
-        planned_queries = build_search_queries(
-            claim_id=req.claim_id,
-            claim_text=req.claim_text,
-            location=req.explicit_location,
-            date=req.explicit_date,
-        )
-
-        for q_text, q_intent in planned_queries:
-            remaining = overall_deadline - time.monotonic()
-            if remaining <= 0:
-                break
-
-            # Enforce max 2 search API requests including retries across the research action
-            if getattr(provider, "total_requests_made", 0) >= settings.max_search_queries_per_claim:
-                break
-
-            q_id = f"qry_{uuid.uuid4().hex[:10]}"
-            linked_query = ClaimLinkedQuery(
-                query_id=q_id,
+        async def _run_pipeline() -> None:
+            nonlocal distinct_urls, timed_out
+            # Step 1: Generate and execute search queries (at most 2 queries)
+            planned_queries = build_search_queries(
                 claim_id=req.claim_id,
-                query_text=q_text,
-                query_intent=q_intent,
-                generated_at=now_iso,
-            )
-            queries_used.append(linked_query)
-
-            # Execute search hit gathering (max 5 hits per query)
-            raw_results = await provider.search(
-                query=q_text,
-                max_results=settings.max_search_hits_per_query,
+                claim_text=req.claim_text,
+                location=req.explicit_location,
+                date=req.explicit_date,
             )
 
-            for raw in raw_results:
-                hit_id = f"hit_{uuid.uuid4().hex[:10]}"
-                hit = SearchResultHit(
-                    result_id=hit_id,
+            for q_text, q_intent in planned_queries:
+                remaining = overall_deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+
+                # Enforce max 2 search API requests including retries across the research action
+                if getattr(provider, "total_requests_made", 0) >= settings.max_search_queries_per_claim:
+                    break
+
+                q_id = f"qry_{uuid.uuid4().hex[:10]}"
+                linked_query = ClaimLinkedQuery(
                     query_id=q_id,
                     claim_id=req.claim_id,
-                    url=raw.url,
-                    title=raw.title,
-                    snippet=raw.snippet,
-                    rank=raw.rank,
-                    engine=raw.engine,
-                    is_snippet_only=True,
+                    query_text=q_text,
+                    query_intent=q_intent,
+                    generated_at=now_iso,
                 )
-                search_hits.append(hit)
+                queries_used.append(linked_query)
 
-            # If the primary query returned hits, don't execute secondary query to conserve search budget
-            if search_hits:
-                break
+                try:
+                    raw_results = await asyncio.wait_for(
+                        provider.search(
+                            query=q_text,
+                            max_results=settings.max_search_hits_per_query,
+                        ),
+                        timeout=max(0.001, remaining),
+                    )
+                except (TimeoutError, asyncio.TimeoutError):
+                    timed_out = True
+                    break
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning("Search provider failed on query '%s': %s", q_text, exc)
+                    break
 
-        # Step 2: Build candidate URLs (at most 3 distinct pages)
-        candidate_urls: list[str] = []
-        if req.source_url and req.source_url.strip():
-            candidate_urls.append(req.source_url.strip())
+                for raw in raw_results:
+                    hit_id = f"hit_{uuid.uuid4().hex[:10]}"
+                    hit = SearchResultHit(
+                        result_id=hit_id,
+                        query_id=q_id,
+                        claim_id=req.claim_id,
+                        url=raw.url,
+                        title=raw.title,
+                        snippet=raw.snippet,
+                        rank=raw.rank,
+                        engine=raw.engine,
+                        is_snippet_only=True,
+                    )
+                    search_hits.append(hit)
 
-        for hit in search_hits:
-            candidate_urls.append(hit.url)
+                # If primary query returned hits, don't execute secondary query to conserve search budget
+                if search_hits:
+                    break
 
-        # Deduplicate and cap at max_fetched_pages_per_claim (3)
-        distinct_urls = deduplicate_urls(candidate_urls)[: settings.max_fetched_pages_per_claim]
+            # Step 2: Build candidate URLs (at most 3 distinct pages)
+            candidate_urls: list[str] = []
+            if req.source_url and req.source_url.strip():
+                candidate_urls.append(req.source_url.strip())
 
-        # Step 3: Fetch candidate pages with SafeFetcher
-        for url in distinct_urls:
-            remaining = overall_deadline - time.monotonic()
-            if remaining <= 0:
+            for hit in search_hits:
+                candidate_urls.append(hit.url)
+
+            # Deduplicate and cap at max_fetched_pages_per_claim (3)
+            distinct_urls = deduplicate_urls(candidate_urls)[: settings.max_fetched_pages_per_claim]
+
+            # Step 3: Fetch candidate pages with SafeFetcher
+            for url in distinct_urls:
+                remaining = overall_deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    retrieved_sources.append(
+                        RetrievedSource(
+                            source_id=f"src_{uuid.uuid4().hex[:12]}",
+                            initial_url=url,
+                            status=SourceFetchState.INACCESSIBLE,
+                            fetched_at=datetime.now(timezone.utc).isoformat(),
+                            error_message=f"TIMEOUT: Research deadline of {settings.research_timeout_seconds}s exceeded.",
+                        )
+                    )
+                    continue
+
+                fetch_timeout = min(30.0, remaining)
+                fetcher = self._get_fetcher(timeout_seconds=fetch_timeout)
+
+                # Execute safe fetch isolated per candidate URL
+                try:
+                    source = await fetcher.fetch(url)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    source = RetrievedSource(
+                        source_id=f"src_{uuid.uuid4().hex[:12]}",
+                        initial_url=url,
+                        status=SourceFetchState.INACCESSIBLE,
+                        fetched_at=datetime.now(timezone.utc).isoformat(),
+                        error_message=f"FETCH_ERROR: {exc}",
+                    )
+
+                # If retrieved, clean HTML or plain text to readable plaintext and extract verbatim passages
+                if source.status == SourceFetchState.RETRIEVED and source.extracted_text:
+                    raw_sample = source.extracted_text[:5000]
+                    cleaned_text = clean_text_content(source.extracted_text, content_type=source.content_type)
+                    if cleaned_text:
+                        source = source.model_copy(
+                            update={
+                                "extracted_text": cleaned_text,
+                                "raw_text": raw_sample,
+                                "extraction_note": f"MIME {source.content_type or 'unknown'}; normalized length {len(cleaned_text)} chars from {len(source.extracted_text)} raw chars.",
+                            }
+                        )
+                        passages = extract_candidate_passages(
+                            source=source,
+                            claim_id=req.claim_id,
+                            claim_text=req.claim_text,
+                            location=req.explicit_location,
+                            date=req.explicit_date,
+                        )
+                        for passage in passages:
+                            if verify_passage_provenance(passage, source):
+                                candidate_passages.append(passage)
+                    else:
+                        source = source.model_copy(
+                            update={
+                                "status": SourceFetchState.EXTRACTION_FAILED,
+                                "error_message": "Document parsed to empty or non-text content.",
+                                "extracted_text": None,
+                                "raw_text": raw_sample,
+                                "extraction_note": "Parsed to empty content.",
+                            }
+                        )
+
+                retrieved_sources.append(source)
+
+        try:
+            async with asyncio.timeout(max(0.001, settings.research_timeout_seconds)):
+                await _run_pipeline()
+        except (TimeoutError, asyncio.TimeoutError):
+            timed_out = True
+        except asyncio.CancelledError:
+            raise
+
+        completed_seconds = round(time.monotonic() - start_time, 2)
+        retrieved_count = sum(1 for s in retrieved_sources if s.status == SourceFetchState.RETRIEVED)
+
+        # Ensure any candidate URLs not yet reached get a TIMEOUT record if timed out
+        fetched_urls = {s.initial_url for s in retrieved_sources}
+        for u in distinct_urls:
+            if u not in fetched_urls:
                 retrieved_sources.append(
                     RetrievedSource(
                         source_id=f"src_{uuid.uuid4().hex[:12]}",
-                        initial_url=url,
+                        initial_url=u,
                         status=SourceFetchState.INACCESSIBLE,
                         fetched_at=datetime.now(timezone.utc).isoformat(),
                         error_message=f"TIMEOUT: Research deadline of {settings.research_timeout_seconds}s exceeded.",
                     )
                 )
-                continue
 
-            fetch_timeout = min(30.0, max(1.0, remaining))
-            fetcher = self._get_fetcher(timeout_seconds=fetch_timeout)
-
-            # Execute safe fetch
-            source = await fetcher.fetch(url)
-
-            # If retrieved, clean HTML to readable plaintext and extract verbatim passages
-            if source.status == SourceFetchState.RETRIEVED and source.extracted_text:
-                cleaned_text = clean_html_to_text(source.extracted_text)
-                if cleaned_text:
-                    source = source.model_copy(update={"extracted_text": cleaned_text})
-                    passages = extract_candidate_passages(
-                        source=source,
-                        claim_id=req.claim_id,
-                        claim_text=req.claim_text,
-                        location=req.explicit_location,
-                        date=req.explicit_date,
-                    )
-                    for passage in passages:
-                        if verify_passage_provenance(passage, source):
-                            candidate_passages.append(passage)
-                else:
-                    source = source.model_copy(
-                        update={
-                            "status": SourceFetchState.EXTRACTION_FAILED,
-                            "error_message": "Document parsed to empty or non-text content.",
-                            "extracted_text": None,
-                        }
-                    )
-
-            retrieved_sources.append(source)
-
-        completed_seconds = round(time.monotonic() - start_time, 2)
-        retrieved_count = sum(1 for s in retrieved_sources if s.status == SourceFetchState.RETRIEVED)
-        status_msg = (
-            f"Gathered {len(search_hits)} candidate search hit(s); "
-            f"fetched {retrieved_count} of {len(distinct_urls)} candidate page(s) "
-            f"in {completed_seconds}s."
-        )
+        if timed_out:
+            status_msg = (
+                f"TIMEOUT: Research deadline of {settings.research_timeout_seconds}s exceeded after {completed_seconds}s. "
+                f"Gathered {len(search_hits)} candidate search hit(s); "
+                f"fetched {retrieved_count} of {len(distinct_urls)} candidate page(s)."
+            )
+        else:
+            status_msg = (
+                f"Gathered {len(search_hits)} candidate search hit(s); "
+                f"fetched {retrieved_count} of {len(distinct_urls)} candidate page(s) "
+                f"in {completed_seconds}s."
+            )
 
         return ResearchResponse(
             submission_id=req.submission_id,

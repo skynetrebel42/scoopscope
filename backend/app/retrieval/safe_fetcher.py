@@ -148,12 +148,16 @@ def validate_url_syntax(url_str: str) -> urllib.parse.ParseResult:
     
     Raises SafeFetchError on any syntax violation.
     """
+    if not url_str or not isinstance(url_str, str) or len(url_str) > 4096:
+        raise SafeFetchError("URL is empty, invalid, or exceeds maximum allowed length (4096 characters).")
+
     try:
         parsed = urllib.parse.urlparse(url_str)
     except Exception as exc:
         raise SafeFetchError(f"Malformed URL: {exc}") from exc
 
-    if parsed.scheme.lower() not in ("http", "https"):
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https"):
         raise SafeFetchError(f"Unsupported scheme '{parsed.scheme}'; only HTTP and HTTPS are permitted.")
 
     # Reject embedded credentials
@@ -161,14 +165,23 @@ def validate_url_syntax(url_str: str) -> urllib.parse.ParseResult:
         raise SafeFetchError("URLs with embedded user credentials (username/password) are forbidden.")
 
     # Enforce standard ports only
-    port = parsed.port
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise SafeFetchError(f"Invalid port in URL: {exc}") from exc
+
     if port is not None:
-        if parsed.scheme.lower() == "http" and port != 80:
+        if scheme == "http" and port != 80:
             raise SafeFetchError(f"Non-standard HTTP port {port} is forbidden (only port 80 allowed).")
-        if parsed.scheme.lower() == "https" and port != 443:
+        if scheme == "https" and port != 443:
             raise SafeFetchError(f"Non-standard HTTPS port {port} is forbidden (only port 443 allowed).")
 
-    if not parsed.hostname:
+    try:
+        hostname = parsed.hostname
+    except ValueError as exc:
+        raise SafeFetchError(f"Invalid hostname in URL: {exc}") from exc
+
+    if not hostname:
         raise SafeFetchError("URL must contain a valid hostname.")
 
     return parsed
@@ -327,6 +340,35 @@ class SafeFetcher:
         now_iso = datetime.now(timezone.utc).isoformat()
         deadline = time.monotonic() + self.overall_timeout_seconds
 
+        try:
+            async with asyncio.timeout(max(0.001, self.overall_timeout_seconds)):
+                return await self._fetch_internal(url=url, source_id=source_id, now_iso=now_iso, deadline=deadline)
+        except (TimeoutError, asyncio.TimeoutError):
+            return RetrievedSource(
+                source_id=source_id,
+                initial_url=url,
+                final_url=url,
+                redirect_count=0,
+                status=SourceFetchState.INACCESSIBLE,
+                fetched_at=now_iso,
+                error_message=f"TIMEOUT: Overall fetch deadline of {self.overall_timeout_seconds}s exceeded.",
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            return RetrievedSource(
+                source_id=source_id,
+                initial_url=url,
+                final_url=url,
+                redirect_count=0,
+                status=SourceFetchState.INACCESSIBLE,
+                fetched_at=now_iso,
+                error_message=f"FETCH_ERROR: {exc}",
+            )
+
+    async def _fetch_internal(
+        self, url: str, source_id: str, now_iso: str, deadline: float
+    ) -> RetrievedSource:
         current_url = url
         redirect_count = 0
         last_resolved_ip: str | None = None
@@ -354,9 +396,9 @@ class SafeFetcher:
                     initial_url=url,
                     final_url=current_url,
                     redirect_count=redirect_count,
-                    status=SourceFetchState.SSRF_BLOCKED if "credential" in str(exc) or "port" in str(exc) else SourceFetchState.INACCESSIBLE,
+                    status=SourceFetchState.INACCESSIBLE,
                     fetched_at=now_iso,
-                    error_message=str(exc),
+                    error_message=f"INVALID_URL: {exc}",
                 )
 
             # 3. DNS resolution & SSRF precheck

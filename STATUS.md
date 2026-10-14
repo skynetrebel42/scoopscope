@@ -99,32 +99,32 @@ Last updated: 2026-10-14
 
 ---
 
-## Automated Test Suite (105 passing — all fixture-based or mocked)
+## Automated Test Suite (115 passing — all fixture-based or mocked)
 
 | Suite | Tests / Assertions | What it covers | Status |
 |---|---|---|---|
 | `test_extraction.py` | 14 tests | Claim extraction, validation, error handling, unique IDs | PASSED |
-| `test_frontend_ordering.py` | 1 test (50 browser assertions) | Headless Chrome browser test: request ordering, stale discard, Try Again, research action, snippet rendering, passage rendering, input modification reset, inert text XSS protection | PASSED |
+| `test_frontend_ordering.py` | 1 test (65 browser assertions) | Headless Chrome browser test: request ordering, stale discard, Try Again, research action, snippet rendering, passage rendering, input/URL modification invalidation (R4), inert text XSS protection | PASSED |
 | `test_search_contract.py` | 9 tests | `SearchProvider` Protocol, `SearchResultHit` snippet immutability, date/dependence defaults, query generation | PASSED |
-| `test_safe_fetcher.py` | 62 tests | IP ranges, IPv4-mapped IPv6, CGNAT, scheme/port/credential validation, public success, private/loopback rejection, public-to-private redirect block, DNS rebinding block, 3-hop redirect limit, MIME rejection, 1MB size limit, timeout deadline, socket connection enforcement | PASSED |
-| `test_serper_provider.py` | 11 tests | Serper contract adherence, missing key handling, search response parsing, 5-hit cap, 401/403/429 status mapping, bounded 5xx retries, secret redaction | PASSED |
-| `test_passage_extractor.py` | 5 tests | Script/style stripping, entity decoding, exact substring offsets, provenance verification, URL deduplication | PASSED |
-| `test_research_endpoint.py` | 3 tests | Orchestrator flow with mock provider & fetcher, candidate page budget cap (3), partial fetch failures, 503 on missing credentials | PASSED |
-| **Total** | **105 passed** | Full regression and Milestone 2C capabilities | **ALL PASSED (28.07s)** |
+| `test_safe_fetcher.py` | 65 tests | IP ranges, IPv4-mapped IPv6, CGNAT, scheme/standard & bad port/credential validation (R3), public success, private/loopback rejection, public-to-private redirect block, DNS rebinding block, 3-hop redirect limit, MIME rejection, 1MB size limit, cancellable deadline and slow DNS enforcement with elapsed bounds (R2), socket connection enforcement | PASSED |
+| `test_serper_provider.py` | 12 tests | Serper contract adherence, missing key handling, search response parsing, 5-hit cap, 401/403/429 status mapping, bounded 5xx retries, outbound attempt accounting, secret redaction | PASSED |
+| `test_passage_extractor.py` | 9 tests | Script/style stripping, entity decoding (single decode R1), exact substring offsets, provenance verification, URL deduplication, void element handling (<embed> R1), table cell number separation (R1), plain-text MIME preservation (<exception> R1) | PASSED |
+| `test_research_endpoint.py` | 5 tests | Orchestrator flow with mock provider & fetcher (injected DNS R5), candidate page budget cap (3), partial fetch failures, 503 on missing credentials, cancellable orchestrator deadline enforcement (R2), malformed port error isolation (R3) | PASSED |
+| **Total** | **115 passed** | Full regression and Milestone 2C capabilities | **ALL PASSED (30.32s)** |
 
 ---
 
 ## Live vs. Mocked Results Summary
 
-### 1. Mocked & Local Integration Verification
-- Full orchestrator execution tested with mock search provider and mock HTTP network backend.
+### 1. Mocked & Local Integration Verification (Repaired Snapshot)
+- Full orchestrator execution verified offline with mock search provider and mock HTTP network backend.
+- DNS resolution injected in offline tests to prevent reliance on host system resolver.
 - Candidate budgets (max 2 queries, max 5 hits/query, max 3 fetched pages) verified.
 - Programmatic character offsets verified (`extracted_text[start:end] == exact_passage`).
-- Headless Chrome browser suite verified with 50 assertions across 8 tests (stale response discard, Try Again recovery, research action, inert rendering).
+- Headless Chrome browser suite verified with 65 assertions across 8 tests (stale response discard, edit-during-extraction, URL-only edits, edit-during-research, Try Again recovery, research action, inert rendering).
 
-### 2. Live Smoke Status (COMPLETED & VERIFIED)
-- `SERPER_API_KEY` configured locally in `backend/.env`.
-- Executed single authorized live smoke investigation:
+### 2. Prior Live Smoke Results (Historical Builder Evidence)
+- The live smoke run against live Gemini and Serper APIs was conducted during the initial Milestone 2C verification pass:
   - Input: `"Mayor Karen Bass took office in December 2022 as the 43rd Mayor of Los Angeles."`
   - Factual claim extracted and researched in 6.26s.
   - Queries: 1 query sent to Serper (1 of 2 allowed search requests).
@@ -136,6 +136,7 @@ Last updated: 2026-10-14
   - Verbatim candidate passages: 4 passages extracted. Programmatic character offset check verified 100% exact substring match (`extracted_text[start:end] == exact_passage`).
   - Browser presentation verified via headless Chrome browser subagent with distinct search hit and candidate source groups, collapsible text inspectors, and inert text rendering.
   - Zero verdicts, truth scores, or confidence ratings generated. Zero secrets leaked.
+  - Note: In this repair pass, live smoke assertions in `live_smoke_investigation.py` were updated to explicitly assert elapsed time <= 90s, at least 1 retrieved source, and at least 1 extracted passage. Per instructions, live external API calls were not re-executed during this offline repair pass.
 
 ---
 

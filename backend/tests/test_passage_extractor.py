@@ -153,3 +153,41 @@ def test_url_deduplication():
     assert len(deduped) == 2
     assert deduped[0] == "https://example.com/page"
     assert deduped[1] == "https://example.com/other-page"
+
+
+# ---------------------------------------------------------------------------
+# R1 Regressions: Source Cleaning and Fidelity
+# ---------------------------------------------------------------------------
+
+def test_html_void_tag_embed_does_not_suppress_subsequent_text():
+    """R1: <embed> is a void tag without end tag. It must not suppress following text."""
+    html_input = '<p>Initial statement.</p><embed src="x.pdf"><p>Later correction: the claim is false.</p>'
+    cleaned = clean_html_to_text(html_input)
+    assert "Initial statement." in cleaned
+    assert "Later correction: the claim is false." in cleaned
+
+
+def test_table_cell_boundaries_prevent_digit_merging():
+    """R1: Table cells must maintain whitespace separation to prevent merging numbers."""
+    html_input = "<table><tr><td>2022</td><td>43</td></tr></table>"
+    cleaned = clean_html_to_text(html_input)
+    assert "202243" not in cleaned
+    assert "2022 43" in cleaned
+
+
+def test_single_entity_decode_preserves_literal_entities():
+    """R1: HTMLParser single decode must not double-unescape literal entity text."""
+    html_input = "<p>Literal text: &amp;lt;warning&amp;gt;</p>"
+    cleaned = clean_html_to_text(html_input)
+    # &amp;lt; -> &lt; (one decode). It must NOT become <warning>
+    assert "&lt;warning&gt;" in cleaned
+    assert "<warning>" not in cleaned
+
+
+def test_clean_text_content_preserves_plain_text_brackets():
+    """R1: Plain-text MIME body must retain angle brackets and literal text."""
+    from app.retrieval.passage_extractor import clean_text_content
+    raw_plain = "Rule: <exception> must be retained in this plain-text record."
+    cleaned = clean_text_content(raw_plain, content_type="text/plain; charset=utf-8")
+    assert "<exception>" in cleaned
+    assert cleaned == "Rule: <exception> must be retained in this plain-text record."

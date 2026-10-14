@@ -136,13 +136,13 @@ class ErrorResponse(BaseModel):
 
 class ResearchRequest(BaseModel):
     """Incoming request to gather candidate evidence for a single claim."""
-    submission_id: str = Field(..., min_length=1)
-    claim_id: str = Field(..., min_length=1)
+    submission_id: str = Field(..., min_length=1, max_length=200)
+    claim_id: str = Field(..., min_length=1, max_length=200)
     claim_text: str = Field(..., min_length=1, max_length=5000)
-    claim_type: str = Field(default="factual")
-    explicit_location: Optional[str] = None
-    explicit_date: Optional[str] = None
-    source_url: Optional[str] = None
+    claim_type: str = Field(default="factual", max_length=50)
+    explicit_location: Optional[str] = Field(default=None, max_length=500)
+    explicit_date: Optional[str] = Field(default=None, max_length=500)
+    source_url: Optional[str] = Field(default=None, max_length=4096)
 
 
 class ResearchResponse(BaseModel):
