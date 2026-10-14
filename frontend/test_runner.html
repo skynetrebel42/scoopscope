@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ScoopScope — Frontend Ordering Test Runner</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        #test-report {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: #111520;
+            border: 1px solid #3ecfb4;
+            border-radius: 8px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .test-pass { color: #3ecfb4; }
+        .test-fail { color: #eb5757; }
+    </style>
+</head>
+<body>
+    <div id="test-report">Running tests...</div>
+
+    <div class="app-container" style="opacity: 0.2; pointer-events: none;">
+        <!-- Header -->
+        <header class="app-header">
+            <h1 class="logo-text">ScoopScope</h1>
+        </header>
+
+        <!-- Input Section -->
+        <main class="main-content">
+            <form id="extraction-form" class="input-card" autocomplete="off">
+                <div class="form-group">
+                    <label for="input-text" class="form-label">Statement</label>
+                    <textarea id="input-text" class="form-textarea" rows="6" maxlength="10000" required></textarea>
+                    <div class="char-counter"><span id="char-count">0</span> / 10,000</div>
+                </div>
+                <div class="form-group">
+                    <label for="source-url" class="form-label">Source URL</label>
+                    <input id="source-url" class="form-input" type="url" />
+                </div>
+                <button id="submit-btn" type="submit" class="btn-primary">
+                    <span class="btn-label">Extract Claims</span>
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                </button>
+            </form>
+
+            <!-- Error Banner -->
+            <div id="error-banner" class="error-banner hidden" role="alert">
+                <div class="error-icon" aria-hidden="true">⚠</div>
+                <div class="error-body">
+                    <strong id="error-title"></strong>
+                    <p id="error-detail"></p>
+                    <div class="error-actions">
+                        <button id="error-retry" type="button" class="btn-retry">Try Again</button>
+                    </div>
+                </div>
+                <button id="error-dismiss" class="error-dismiss" aria-label="Dismiss">&times;</button>
+            </div>
+
+            <!-- Results Section -->
+            <section id="results-section" class="results-section hidden" aria-live="polite">
+                <div class="results-header">
+                    <h2 class="results-title">Extracted Claims</h2>
+                    <span id="results-status" class="results-status"></span>
+                </div>
+                <div class="submitted-context">
+                    <div class="context-label">Original submission</div>
+                    <blockquote id="submitted-text" class="submitted-text"></blockquote>
+                    <div id="submitted-url-row" class="submitted-url-row hidden">
+                        <span class="context-label">Source:</span>
+                        <a id="submitted-url" class="submitted-url" target="_blank" rel="noopener noreferrer"></a>
+                    </div>
+                </div>
+                <div id="claims-list" class="claims-list"></div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Load production app.js -->
+    <script src="app.js"></script>
+
+    <!-- Test Suite Script -->
+    <script>
+    (async function () {
+        const report = document.getElementById("test-report");
+        const logs = [];
+        let passedCount = 0;
+        let failedCount = 0;
+
+        function log(msg, status = "info") {
+            const time = new Date().toISOString().substring(11, 23);
+            logs.push(`[${time}] ${msg}`);
+            report.textContent = logs.join("\n");
+        }
+
+        function assert(condition, message) {
+            if (!condition) {
+                failedCount++;
+                log(`FAIL: ${message}`, "fail");
+                throw new Error(`Assertion failed: ${message}`);
+            } else {
+                passedCount++;
+                log(`PASS: ${message}`, "pass");
+            }
+        }
+
+        const inputText = document.getElementById("input-text");
+        const sourceUrl = document.getElementById("source-url");
+        const form = document.getElementById("extraction-form");
+        const submitBtn = document.getElementById("submit-btn");
+        const errorBanner = document.getElementById("error-banner");
+        const errorTitle = document.getElementById("error-title");
+        const errorRetry = document.getElementById("error-retry");
+        const resultsSection = document.getElementById("results-section");
+        const submittedText = document.getElementById("submitted-text");
+        const claimsList = document.getElementById("claims-list");
+
+        // Mock controller
+        let mockQueue = [];
+        window.fetch = async function (url, opts) {
+            if (url === "/api/extract") {
+                const body = JSON.parse(opts.body);
+                // Find matching handler or next handler
+                const handler = mockQueue.shift();
+                if (!handler) {
+                    throw new Error("Unexpected fetch call without mock handler: " + body.text);
+                }
+                return handler(body);
+            }
+            return origFetch(url, opts);
+        };
+
+        function createSuccessResponse(submittedText, claims) {
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    submission_id: "mock-" + Math.random().toString(36).substring(2, 9),
+                    submitted_text: submittedText,
+                    source_url: null,
+                    claims: claims,
+                    extracted_at: new Date().toISOString(),
+                    status_message: "Claims extracted. Evidence research not yet performed."
+                })
+            };
+        }
+
+        function createErrorResponse(submittedText, status, errorMsg, detailMsg) {
+            return {
+                ok: false,
+                status: status,
+                json: async () => ({
+                    error: errorMsg,
+                    detail: detailMsg,
+                    submitted_text: submittedText,
+                    source_url: null
+                })
+            };
+        }
+
+        const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        log("Starting Frontend Request-Ordering and State Ownership Test Suite...");
+
+        try {
+            // -------------------------------------------------------------
+            // TEST 1: Submit A then B; finish B first, then A -> Only B displayed
+            // -------------------------------------------------------------
+            log("\n--- TEST 1: Submit A then B; B finishes first, A finishes second ---");
+            
+            // Prepare handlers
+            let finishA, finishB;
+            const promiseA = new Promise(resolve => { finishA = resolve; });
+            const promiseB = new Promise(resolve => { finishB = resolve; });
+
+            mockQueue.push(async (body) => {
+                await promiseA;
+                return createSuccessResponse(body.text, [{
+                    id: "claim-a",
+                    original_wording: "Claim from text A",
+                    normalized_assertion: "Assertion A",
+                    claim_type: "factual",
+                    explicit_date: null,
+                    explicit_location: null,
+                    explicit_quantity: null,
+                    qualifications: null
+                }]);
+            });
+
+            mockQueue.push(async (body) => {
+                await promiseB;
+                return createSuccessResponse(body.text, [{
+                    id: "claim-b",
+                    original_wording: "Claim from text B",
+                    normalized_assertion: "Assertion B",
+                    claim_type: "factual",
+                    explicit_date: null,
+                    explicit_location: null,
+                    explicit_quantity: null,
+                    qualifications: null
+                }]);
+            });
+
+            // Submit A
+            inputText.value = "Statement A";
+            window.__ScoopScope.executeSubmission();
+            assert(submitBtn.classList.contains("loading"), "Loading state active after submit A");
+            assert(resultsSection.classList.contains("hidden"), "Results hidden while loading A");
+
+            // Submit B while A is in flight
+            inputText.value = "Statement B";
+            window.__ScoopScope.executeSubmission();
+            assert(submitBtn.classList.contains("loading"), "Loading state active after submit B");
+
+            // Now finish B FIRST
+            finishB();
+            await delay(50); // allow microtasks and render to run
+
+            assert(!resultsSection.classList.contains("hidden"), "Results section visible after B finishes");
+            assert(submittedText.textContent === "Statement B", "Submitted text shows B");
+            assert(claimsList.children.length === 1, "Claims list has 1 card from B");
+            assert(claimsList.textContent.includes("Assertion B"), "Claims list displays Assertion B");
+            assert(!submitBtn.classList.contains("loading"), "Loading state is false after B finishes");
+            assert(errorBanner.classList.contains("hidden"), "Error banner hidden after B succeeds");
+
+            // Now finish A SECOND
+            finishA();
+            await delay(50);
+
+            // Assert: A MUST NOT have overwritten B
+            assert(submittedText.textContent === "Statement B", "Submitted text still shows B after A resolved");
+            assert(claimsList.textContent.includes("Assertion B"), "Assertion B remains displayed");
+            assert(!claimsList.textContent.includes("Assertion A"), "Assertion A was discarded and NOT displayed");
+            assert(!submitBtn.classList.contains("loading"), "Loading state remains false");
+            assert(errorBanner.classList.contains("hidden"), "Error banner remains hidden");
+
+            // -------------------------------------------------------------
+            // TEST 2: Submit A then B; B succeeds first, A fails second
+            // -------------------------------------------------------------
+            log("\n--- TEST 2: Submit A then B; B succeeds first, A fails second ---");
+
+            let finishA2, finishB2;
+            const promiseA2 = new Promise(resolve => { finishA2 = resolve; });
+            const promiseB2 = new Promise(resolve => { finishB2 = resolve; });
+
+            mockQueue.push(async (body) => {
+                await promiseA2;
+                return createErrorResponse(body.text, 503, "Extraction failed", "Gemini 503 error on A");
+            });
+
+            mockQueue.push(async (body) => {
+                await promiseB2;
+                return createSuccessResponse(body.text, [{
+                    id: "claim-b2",
+                    original_wording: "Claim from statement B2",
+                    normalized_assertion: "Assertion B2",
+                    claim_type: "factual",
+                    explicit_date: null,
+                    explicit_location: null,
+                    explicit_quantity: null,
+                    qualifications: null
+                }]);
+            });
+
+            inputText.value = "Statement A2";
+            window.__ScoopScope.executeSubmission();
+            inputText.value = "Statement B2";
+            window.__ScoopScope.executeSubmission();
+
+            // Finish B first
+            finishB2();
+            await delay(50);
+
+            assert(submittedText.textContent === "Statement B2", "Submitted text shows B2");
+            assert(claimsList.textContent.includes("Assertion B2"), "Assertion B2 displayed");
+            assert(errorBanner.classList.contains("hidden"), "Error banner is hidden");
+
+            // Finish A with failure second
+            finishA2();
+            await delay(50);
+
+            // Assert: A's failure did not pollute the display
+            assert(errorBanner.classList.contains("hidden"), "A's failure did NOT trigger error banner after B2 succeeded");
+            assert(claimsList.textContent.includes("Assertion B2"), "Assertion B2 remains displayed undisturbed");
+            assert(!submitBtn.classList.contains("loading"), "Loading state remains false");
+
+            // -------------------------------------------------------------
+            // TEST 3: Submit A then B; B fails first, A finishes second
+            // -------------------------------------------------------------
+            log("\n--- TEST 3: Submit A then B; B fails first, A finishes second ---");
+
+            let finishA3, finishB3;
+            const promiseA3 = new Promise(resolve => { finishA3 = resolve; });
+            const promiseB3 = new Promise(resolve => { finishB3 = resolve; });
+
+            mockQueue.push(async (body) => {
+                await promiseA3;
+                return createSuccessResponse(body.text, [{
+                    id: "claim-a3",
+                    original_wording: "Claim A3",
+                    normalized_assertion: "Assertion A3",
+                    claim_type: "factual",
+                    explicit_date: null,
+                    explicit_location: null,
+                    explicit_quantity: null,
+                    qualifications: null
+                }]);
+            });
+
+            mockQueue.push(async (body) => {
+                await promiseB3;
+                return createErrorResponse(body.text, 503, "Extraction failed", "Service unavailable on B3");
+            });
+
+            inputText.value = "Statement A3";
+            window.__ScoopScope.executeSubmission();
+            inputText.value = "Statement B3";
+            window.__ScoopScope.executeSubmission();
+
+            // Finish B with failure first
+            finishB3();
+            await delay(50);
+
+            assert(!errorBanner.classList.contains("hidden"), "Error banner displayed for B3 failure");
+            assert(errorTitle.textContent.includes("Extraction failed"), "Error title matches B3 error");
+            assert(resultsSection.classList.contains("hidden"), "Results section hidden on B3 error");
+            assert(!submitBtn.classList.contains("loading"), "Loading false after B3 error");
+
+            // Now finish A3 success second
+            finishA3();
+            await delay(50);
+
+            // Assert: A3 success does NOT override B3's error banner or resurrect old results
+            assert(!errorBanner.classList.contains("hidden"), "B3 error banner still displayed");
+            assert(resultsSection.classList.contains("hidden"), "A3 was discarded and results remain hidden");
+
+            // -------------------------------------------------------------
+            // TEST 4: Try Again action recovery
+            // -------------------------------------------------------------
+            log("\n--- TEST 4: Try Again action recovery ---");
+
+            // Currently in error state from Test 3 on Statement B3.
+            mockQueue.push(async (body) => {
+                return createSuccessResponse(body.text, [{
+                    id: "claim-b3-retry",
+                    original_wording: "Claim B3 recovered",
+                    normalized_assertion: "Assertion B3 Recovered",
+                    claim_type: "factual",
+                    explicit_date: null,
+                    explicit_location: null,
+                    explicit_quantity: null,
+                    qualifications: null
+                }]);
+            });
+
+            // Click Try Again
+            errorRetry.click();
+            assert(errorBanner.classList.contains("hidden"), "Error banner dismissed on Try Again click");
+            assert(submitBtn.classList.contains("loading"), "Loading active during retry");
+
+            await delay(50);
+
+            assert(!resultsSection.classList.contains("hidden"), "Results visible after retry success");
+            assert(claimsList.textContent.includes("Assertion B3 Recovered"), "Retry results rendered");
+            assert(!submitBtn.classList.contains("loading"), "Loading cleared after retry");
+            assert(errorBanner.classList.contains("hidden"), "Error banner remains hidden");
+
+            // -------------------------------------------------------------
+            // TEST 5: Concurrent loading ownership
+            // -------------------------------------------------------------
+            log("\n--- TEST 5: Loading state ownership during concurrent in-flight requests ---");
+
+            let finishA5, finishB5;
+            const pA5 = new Promise(r => finishA5 = r);
+            const pB5 = new Promise(r => finishB5 = r);
+
+            mockQueue.push(async (b) => { await pA5; return createSuccessResponse(b.text, []); });
+            mockQueue.push(async (b) => { await pB5; return createSuccessResponse(b.text, []); });
+
+            inputText.value = "Concurrent A";
+            window.__ScoopScope.executeSubmission();
+            inputText.value = "Concurrent B";
+            window.__ScoopScope.executeSubmission();
+
+            // Both in flight
+            assert(submitBtn.classList.contains("loading"), "Loading is true while both in flight");
+
+            // Finish B
+            finishB5();
+            await delay(50);
+            assert(!submitBtn.classList.contains("loading"), "Loading is false once active request B finishes");
+
+            // Finish A
+            finishA5();
+            await delay(50);
+            assert(!submitBtn.classList.contains("loading"), "Loading remains false when stale A finishes");
+
+            log("\n=================================================");
+            log(`ALL TESTS PASSED: ${passedCount} assertions passed, 0 failures.`);
+            log("=================================================");
+            report.className = "test-pass";
+            window.__TEST_RESULTS = { passed: passedCount, failed: 0, status: "SUCCESS" };
+
+        } catch (err) {
+            log("\n=================================================");
+            log(`TEST RUN FAILED: ${err.message}`);
+            log("=================================================");
+            report.className = "test-fail";
+            window.__TEST_RESULTS = { passed: passedCount, failed: failedCount + 1, error: err.message, status: "FAILED" };
+        }
+    })();
+    </script>
+</body>
+</html>

@@ -80,30 +80,45 @@ class GeminiAdapter:
     async def extract_claims(self, text: str) -> list[ExtractedClaim]:
         """Extract structured claims from *text*.
 
+        Timeout & Retry Policy:
+        - Timeout is strictly PER ATTEMPT (settings.llm_timeout_seconds, default 90s).
+        - Retries are bounded by settings.llm_max_retries (default 2 retries, per AGENTS.md).
+        - Total attempts = 1 initial attempt + settings.llm_max_retries (3 total attempts).
+        - Max overall operation duration (worst-case):
+            Attempts: 3 * 90s = 270s
+            Backoff between attempts:
+              Attempt 1 failure delay: min(12 + 6, 30) = 18s (or 2s if non-rate-limit)
+              Attempt 2 failure delay: min(12 + 12, 30) = 24s (or 4s if non-rate-limit)
+            Total backoff: up to 42s
+            Maximum overall elapsed duration: up to 312 seconds (~5.2 minutes).
+
         Raises:
             CredentialsMissingError: API key not configured.
-            GeminiAdapterError: Provider or validation failure after retries.
+            GeminiAdapterError: Provider or validation failure after all attempts exhausted.
         """
         if self._client is None:
             raise CredentialsMissingError(
                 "GEMINI_API_KEY is not set. See backend/.env.example for instructions."
             )
 
+        total_attempts = settings.llm_max_retries + 1
         last_error: Exception | None = None
-        for attempt in range(1, settings.llm_max_retries + 2):  # 1 initial + retries
+        for attempt in range(1, total_attempts + 1):  # 1 initial attempt + max_retries
             try:
                 return await self._call_model(text, attempt)
             except CredentialsMissingError:
                 raise  # never retry credential errors
             except Exception as exc:
                 last_error = exc
+                is_retry = attempt > 1
                 logger.warning(
-                    "Gemini call attempt %d/%d failed: %s",
+                    "Gemini call %s %d/%d failed: %s",
+                    f"retry {attempt - 1}" if is_retry else "initial attempt",
                     attempt,
-                    settings.llm_max_retries + 1,
+                    total_attempts,
                     exc,
                 )
-                if attempt <= settings.llm_max_retries:
+                if attempt < total_attempts:
                     err_str = str(exc).lower()
                     if any(k in err_str for k in ("429", "resource_exhausted", "503", "unavailable")):
                         delay = min(12.0 + (attempt * 6.0), 30.0)
@@ -112,8 +127,8 @@ class GeminiAdapter:
                     await asyncio.sleep(delay)
 
         raise GeminiAdapterError(
-            f"Claim extraction failed after {settings.llm_max_retries + 1} attempts: "
-            f"{last_error}"
+            f"Claim extraction failed after {total_attempts} attempts "
+            f"(1 initial + {settings.llm_max_retries} retries): {last_error}"
         ) from last_error
 
     # ------------------------------------------------------------------

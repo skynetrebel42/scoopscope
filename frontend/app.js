@@ -16,6 +16,7 @@
     const errorTitle = document.getElementById("error-title");
     const errorDetail = document.getElementById("error-detail");
     const errorDismiss = document.getElementById("error-dismiss");
+    const errorRetry = document.getElementById("error-retry");
 
     const resultsSection = document.getElementById("results-section");
     const resultsStatus = document.getElementById("results-status");
@@ -50,11 +51,12 @@
 
     // --- Loading state ---
     function setLoading(loading) {
-        submitBtn.disabled = loading;
         if (loading) {
             submitBtn.classList.add("loading");
+            submitBtn.setAttribute("aria-busy", "true");
         } else {
             submitBtn.classList.remove("loading");
+            submitBtn.removeAttribute("aria-busy");
         }
     }
 
@@ -131,9 +133,8 @@
         resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
-    // --- Submit ---
-    form.addEventListener("submit", async (e) => {
-        e.preventDefault();
+    // --- Submission logic with request-ordering protection ---
+    async function executeSubmission() {
         hideError();
 
         const text = inputText.value.trim();
@@ -144,6 +145,8 @@
 
         const seq = ++currentSubmissionSeq;
         setLoading(true);
+        // Clear previous results while new request is in flight to guarantee clean state ownership
+        resultsSection.classList.add("hidden");
 
         const body = {
             text: inputText.value,
@@ -157,15 +160,26 @@
                 body: JSON.stringify(body),
             });
 
-            const data = await res.json();
+            // If a newer submission happened while awaiting network, discard
+            if (seq !== currentSubmissionSeq) {
+                return;
+            }
 
-            // If a newer submission happened while we were waiting, discard.
+            let data;
+            try {
+                data = await res.json();
+            } catch (parseErr) {
+                if (seq !== currentSubmissionSeq) return;
+                showError("Response error", "Server returned an unparseable response.");
+                return;
+            }
+
+            // Check again after parsing
             if (seq !== currentSubmissionSeq) {
                 return;
             }
 
             if (!res.ok) {
-                // Error responses echo back submitted_text so input is preserved.
                 showError(
                     data.error || `Error ${res.status}`,
                     data.detail || "Something went wrong."
@@ -182,7 +196,32 @@
                 setLoading(false);
             }
         }
+    }
+
+    // --- Submit listener ---
+    form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        executeSubmission();
     });
+
+    // --- Try Again recovery action ---
+    if (errorRetry) {
+        errorRetry.addEventListener("click", () => {
+            executeSubmission();
+        });
+    }
+
+    // Expose for testing if running in test environment
+    if (typeof window !== "undefined") {
+        window.__ScoopScope = {
+            get currentSeq() { return currentSubmissionSeq; },
+            executeSubmission,
+            renderResults,
+            showError,
+            hideError,
+            setLoading,
+        };
+    }
 
     // --- Utilities ---
     function escapeHtml(str) {

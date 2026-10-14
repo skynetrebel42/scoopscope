@@ -309,6 +309,37 @@ body::before {
     word-break: break-word;
 }
 
+.error-actions {
+    margin-top: 0.6rem;
+}
+
+.btn-retry {
+    background: rgba(235, 87, 87, 0.18);
+    color: #ffb4b4;
+    border: 1px solid rgba(235, 87, 87, 0.45);
+    border-radius: var(--radius-sm);
+    padding: 0.35rem 0.85rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font-family);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    transition: background var(--transition), border-color var(--transition), transform var(--transition);
+}
+
+.btn-retry:hover {
+    background: rgba(235, 87, 87, 0.3);
+    border-color: rgba(235, 87, 87, 0.7);
+    color: #ffffff;
+    transform: translateY(-1px);
+}
+
+.btn-retry:active {
+    transform: translateY(0);
+}
+
 .error-dismiss {
     background: none;
     border: none;

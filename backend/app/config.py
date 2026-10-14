@@ -34,8 +34,9 @@ class Settings:
     llm_timeout_seconds: int = field(
         default_factory=lambda: int(os.getenv("LLM_TIMEOUT_SECONDS", "90"))
     )
+    # AGENTS.md rule: max 2 retries (1 initial attempt + 2 retries = 3 attempts total).
     llm_max_retries: int = field(
-        default_factory=lambda: int(os.getenv("LLM_MAX_RETRIES", "3"))
+        default_factory=lambda: int(os.getenv("LLM_MAX_RETRIES", "2"))
     )
 
     @property

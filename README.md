@@ -45,8 +45,8 @@ copy .env.example .env
 
 ### Gemini Free Tier Notes
 
-- The free tier allows **$0 usage** of Flash-tier models (e.g. `gemini-3.8-flash`).
-- Rate limits are ~15 RPM, with daily caps — check your AI Studio dashboard.
+- The free tier allows **$0 usage** of Flash-tier models (e.g. `gemini-flash-lite-latest`, `gemini-3.8-flash`).
+- Rate limits depend on the model and account tier (typically 5–15 RPM for free-tier Flash models, with daily request caps) — check your Google AI Studio dashboard for current limits.
 - Free-tier data **may be used by Google** to improve models.
 - This is distinct from Gemini access in coding assistants — you need an
   application API key from AI Studio, not a coding-tool subscription.
