@@ -55,6 +55,8 @@
     let currentClarificationData = null;
     let clarificationExchanges = [];
     let currentConfirmedScopeQuestion = "";
+    let scopeQuestionManuallyEdited = false;
+    let currentClaims = [];
 
     // Research action state tracking to prevent stale overwrites and duplicate runs
     let activeResearchSeq = 0;
@@ -149,6 +151,12 @@
                 const choiceBtns = clarificationChoicesGroup.querySelectorAll(".btn-choice");
                 choiceBtns.forEach(b => b.disabled = true);
             }
+            if (btnBroadInquiry) {
+                btnBroadInquiry.disabled = true;
+            }
+            if (clarificationFreetext) {
+                clarificationFreetext.disabled = true;
+            }
         } else {
             clarificationSubmitBtn.classList.remove("loading");
             clarificationSubmitBtn.removeAttribute("aria-busy");
@@ -156,6 +164,12 @@
             if (clarificationChoicesGroup) {
                 const choiceBtns = clarificationChoicesGroup.querySelectorAll(".btn-choice");
                 choiceBtns.forEach(b => b.disabled = false);
+            }
+            if (btnBroadInquiry) {
+                btnBroadInquiry.disabled = false;
+            }
+            if (clarificationFreetext) {
+                clarificationFreetext.disabled = false;
             }
         }
     }
@@ -324,7 +338,9 @@
             submittedUrlRow.classList.add("hidden");
         }
 
+        scopeQuestionManuallyEdited = false;
         const claims = data.subclaims || data.claims || [];
+        currentClaims = claims;
         const count = claims.length;
 
         // Milestone 3A: Confirmed Scope Card population
@@ -477,7 +493,7 @@
 
             // Container for research results
             const researchContainer = document.createElement("div");
-            researchContainer.className = "claim-research-container hidden";
+            researchContainer.className = "claim-research-container research-results-container hidden";
             researchContainer.id = `research-container-${claim.id}`;
             card.appendChild(researchContainer);
 
@@ -518,10 +534,15 @@
         loadingIndicator.appendChild(loadText);
         container.appendChild(loadingIndicator);
 
+        const claims = currentClaims || [];
+        const claimText = (claims.length > 1 && !scopeQuestionManuallyEdited)
+            ? (claim.normalized_assertion || claim.original_wording)
+            : (currentConfirmedScopeQuestion || claim.normalized_assertion || claim.original_wording);
+
         const payload = {
             submission_id: currentSubmissionId || "adhoc_submission",
             claim_id: claim.id,
-            claim_text: currentConfirmedScopeQuestion || claim.normalized_assertion || claim.original_wording,
+            claim_text: claimText,
             claim_type: claim.claim_type,
             explicit_location: claim.explicit_location,
             explicit_date: claim.explicit_date,
@@ -1013,17 +1034,44 @@
         });
     }
 
+    function handleScopeQuestionEdit() {
+        scopeQuestionManuallyEdited = true;
+        activeResearchSeq++;
+        activeResearchClaimId = null;
+
+        if (scopeQuestionInput) {
+            currentConfirmedScopeQuestion = scopeQuestionInput.value.trim();
+        }
+
+        // Clear any in-flight loading state or rendered .research-results-container panels on claim cards
+        if (claimsList) {
+            const containers = claimsList.querySelectorAll(".research-results-container, .claim-research-container");
+            containers.forEach(container => {
+                container.innerHTML = "";
+                container.classList.add("hidden");
+            });
+            const loadingStates = claimsList.querySelectorAll(".research-loading-state");
+            loadingStates.forEach(el => el.remove());
+            const researchBtns = claimsList.querySelectorAll(".btn-research");
+            researchBtns.forEach(btn => {
+                if (!document.getElementById("claims-outdated-banner")) {
+                    btn.disabled = false;
+                    btn.textContent = "Find sources";
+                    btn.removeAttribute("title");
+                }
+            });
+        }
+    }
+
     if (scopeQuestionInput) {
         scopeQuestionInput.addEventListener("input", () => {
-            currentConfirmedScopeQuestion = scopeQuestionInput.value.trim();
+            handleScopeQuestionEdit();
         });
     }
 
     if (scopeUpdateBtn) {
         scopeUpdateBtn.addEventListener("click", () => {
-            if (scopeQuestionInput) {
-                currentConfirmedScopeQuestion = scopeQuestionInput.value.trim();
-            }
+            handleScopeQuestionEdit();
             scopeUpdateBtn.textContent = "Saved";
             setTimeout(() => {
                 scopeUpdateBtn.textContent = "Update";
@@ -1039,6 +1087,9 @@
             get activeResearchClaimId() { return activeResearchClaimId; },
             get clarificationExchanges() { return clarificationExchanges; },
             get currentConfirmedScopeQuestion() { return currentConfirmedScopeQuestion; },
+            get scopeQuestionManuallyEdited() { return scopeQuestionManuallyEdited; },
+            get currentClaims() { return currentClaims; },
+            handleScopeQuestionEdit,
             executeSubmission,
             renderResults,
             renderClarification,

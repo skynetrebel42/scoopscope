@@ -199,7 +199,7 @@ class ClarificationRequest(BaseModel):
         max_length=2048,
         description="Optional URL where the statement was found.",
     )
-    round_index: int = Field(default=1, ge=1, le=2)
+    round_index: int = Field(default=1, ge=1, le=3)
     exchanges: list[ClarificationExchange] = Field(default_factory=list)
     explicit_broad: bool = Field(
         default=False,

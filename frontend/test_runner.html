@@ -1025,19 +1025,29 @@
             assert(!container9C.textContent.includes("Stale Hit 9C"), "Late response C was discarded");
 
             // -------------------------------------------------------------
-            // TEST 10: Milestone 3A Clarification and Confirmed Scope Flow
+            // TEST 10: Milestone 3A Full 2-Round Clarification, Options, Scope Confirmation, and Invalidation
             // -------------------------------------------------------------
-            log("\n--- TEST 10: Milestone 3A Clarification, Options, Scope Confirmation, and Invalidation ---");
+            log("\n--- TEST 10: Milestone 3A Full 2-Round Clarification, Options, Scope Confirmation, and Invalidation ---");
 
             const clarSection = document.getElementById("clarification-section");
             const clarQuestion = document.getElementById("clarification-question");
             const clarChoicesGroup = document.getElementById("clarification-choices-group");
             const clarBadge = document.getElementById("clarification-round-badge");
+            const clarFreetext = document.getElementById("clarification-freetext");
+            const clarBroadBtn = document.getElementById("btn-broad-inquiry");
             const confirmedScopeCard = document.getElementById("confirmed-scope-card");
             const scopeInput = document.getElementById("scope-question-input");
             const unresolvedList = document.getElementById("unresolved-list");
 
-            // 1. Submit statement requiring clarification
+            // Verify button and freetext disabling during clarification loading
+            window.__ScoopScope.setClarificationLoading(true);
+            assert(clarBroadBtn.disabled === true, "Broad inquiry button disabled while clarification loading");
+            assert(clarFreetext.disabled === true, "Clarification free text disabled while clarification loading");
+            window.__ScoopScope.setClarificationLoading(false);
+            assert(clarBroadBtn.disabled === false, "Broad inquiry button enabled after loading completes");
+            assert(clarFreetext.disabled === false, "Clarification free text enabled after loading completes");
+
+            // 1. Submit statement requiring Round 1 clarification
             mockQueue.push(async (b) => {
                 return createClarificationResponse(
                     b.text,
@@ -1058,44 +1068,37 @@
             assert(!clarSection.classList.contains("hidden"), "Clarification section visible for unclear statement");
             assert(resultsSection.classList.contains("hidden"), "Results section hidden while clarification pending");
             assert(clarBadge.textContent.includes("Round 1 of 2"), "Round 1 badge displayed");
-            assert(clarQuestion.textContent.includes("Which aspect"), "Clarifying question rendered");
-            assert(clarChoicesGroup.children.length === 3, "Exactly 3 distinct option buttons rendered");
-            assert(clarChoicesGroup.children[0].textContent.includes("Import restrictions"), "Choice 1 text matches");
+            assert(clarQuestion.textContent.includes("Which aspect"), "Round 1 clarifying question rendered");
+            assert(clarChoicesGroup.children.length === 3, "Exactly 3 distinct option buttons rendered in Round 1");
+            assert(clarChoicesGroup.children[0].textContent.includes("Import restrictions"), "Round 1 Choice 1 text matches");
 
-            // 2. Select option 1 -> Advances to round 2 confirmation
+            // 2. Select Option 1 in Round 1 -> Advances to Round 2 of 2 (unclear)
             mockQueue.push(async (b) => {
                 assert(b.round_index === 2, "Second request increments round_index to 2");
-                assert(b.exchanges.length === 1, "Prior choice recorded in exchanges");
+                assert(b.exchanges.length === 1, "Round 1 choice recorded in exchanges");
+                assert(b.exchanges[0].selected_choice.includes("Import restrictions"), "Exchange 1 records selected choice");
                 return {
                     ok: true,
                     status: 200,
                     json: async () => ({
-                        submission_id: "mock-sub-beef-3a",
+                        submission_id: "mock-sub-beef-r2",
                         submitted_text: b.text,
                         source_url: null,
                         purpose: "check_claim",
-                        is_clear: true,
-                        clarification_needed: false,
+                        is_clear: false,
+                        clarification_needed: true,
                         round_index: 2,
-                        max_rounds_reached: true,
+                        max_rounds_reached: false,
+                        question: "Which specific substance or standard in hormone beef would you like to examine?",
+                        choices: [
+                            "1989 EU growth hormone ban (6 hormones)",
+                            "Chlorine and antimicrobial carcass washes",
+                            "Codex Alimentarius international hormone residue standards"
+                        ],
                         interpreted_question: "Did European jurisdictions ban imports of hormone-treated American beef?",
-                        material_uncertainties: [
-                            "Specific substance in beef was not named in user input",
-                            "Jurisdiction Europe vs European Union unconfirmed"
-                        ],
-                        subclaims: [
-                            {
-                                id: "claim-beef-1",
-                                original_wording: "Europe bans American beef",
-                                normalized_assertion: "European jurisdictions ban imports of hormone-treated American beef.",
-                                claim_type: "factual",
-                                explicit_date: null,
-                                explicit_location: "Europe",
-                                explicit_quantity: null,
-                                qualifications: null
-                            }
-                        ],
-                        status_message: "Inquiry scope confirmed · Ready to select a checkable claim for research"
+                        material_uncertainties: ["Specific hormone substance unconfirmed in user text"],
+                        subclaims: [],
+                        status_message: "Clarification requested (round 2 of 2) · 3 options available"
                     })
                 };
             });
@@ -1104,29 +1107,145 @@
             btnChoice1.click();
             await delay(50);
 
-            assert(clarSection.classList.contains("hidden"), "Clarification section hidden after scope confirmation");
+            // Verify Round 2 clarification is rendered
+            assert(!clarSection.classList.contains("hidden"), "Clarification section remains visible for Round 2");
+            assert(resultsSection.classList.contains("hidden"), "Results section still hidden in Round 2");
+            assert(clarBadge.textContent.includes("Round 2 of 2"), "Badge displays 'Round 2 of 2'");
+            assert(clarQuestion.textContent.includes("Which specific substance"), "Round 2 question rendered");
+            assert(clarChoicesGroup.children.length === 3, "Exactly 3 option buttons rendered for Round 2");
+            assert(clarChoicesGroup.children[0].textContent.includes("1989 EU growth hormone ban"), "Round 2 Choice 1 matches");
+
+            // 3. Select Option 1 in Round 2 -> Advances to Round 3 hard ceiling (scope confirmed, 3rd round impossible)
+            const claimBeef1 = {
+                id: "claim-beef-1",
+                original_wording: "Europe bans American beef",
+                normalized_assertion: "European jurisdictions ban imports of hormone-treated American beef.",
+                claim_type: "factual",
+                explicit_date: null,
+                explicit_location: "Europe",
+                explicit_quantity: null,
+                qualifications: null
+            };
+            const claimBeef2 = {
+                id: "claim-beef-2",
+                original_wording: "because of dangerous chemicals",
+                normalized_assertion: "The European beef import restriction is based on safety risks of chemical growth promoters.",
+                claim_type: "causal",
+                explicit_date: null,
+                explicit_location: null,
+                explicit_quantity: null,
+                qualifications: "chemical growth promoters"
+            };
+
+            mockQueue.push(async (b) => {
+                assert(b.round_index === 3, "Third request advances to round_index 3");
+                assert(b.exchanges.length === 2, "Two prior exchanges recorded in history");
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        submission_id: "mock-sub-beef-3a-final",
+                        submitted_text: b.text,
+                        source_url: null,
+                        purpose: "check_claim",
+                        is_clear: true,
+                        clarification_needed: false,
+                        round_index: 3,
+                        max_rounds_reached: true,
+                        interpreted_question: "Did European jurisdictions ban imports of hormone-treated American beef in 1989?",
+                        material_uncertainties: [
+                            "Specific substance in beef was not named in user input",
+                            "Jurisdiction Europe vs European Union unconfirmed"
+                        ],
+                        subclaims: [claimBeef1, claimBeef2],
+                        status_message: "Clarification completed (2 rounds reached) · Remaining uncertainties documented below"
+                    })
+                };
+            });
+
+            const btnChoice2 = clarChoicesGroup.children[0];
+            btnChoice2.click();
+            await delay(50);
+
+            assert(clarSection.classList.contains("hidden"), "Clarification section hidden after hard ceiling reached (3rd round impossible)");
             assert(!resultsSection.classList.contains("hidden"), "Results section displayed after scope confirmed");
             assert(!confirmedScopeCard.classList.contains("hidden"), "Confirmed scope card visible");
-            assert(scopeInput.value.includes("hormone-treated American beef"), "Scope input populated with interpreted question");
+            assert(scopeInput.value.includes("hormone-treated American beef in 1989"), "Scope input populated with interpreted question");
             assert(unresolvedList.children.length === 2, "Two material unresolved scope notes displayed");
-            assert(unresolvedList.textContent.includes("not named in user input"), "Unstated substance uncertainty note rendered");
-            
-            // Check that factual claim tag is displayed as 'Checkable claim'
-            const claimTag = claimsList.querySelector(".claim-type-tag");
-            assert(claimTag !== null, "Claim card rendered");
-            assert(claimTag.textContent === "Checkable claim", "Factual claim labeled 'Checkable claim' for honesty");
+            assert(claimsList.children.length === 2, "Multiple (2) subclaim cards rendered");
+            assert(window.__ScoopScope.scopeQuestionManuallyEdited === false, "scopeQuestionManuallyEdited is false initially");
 
-            // 3. Edit scope question
-            scopeInput.value = "Did the European Union ban hormone beef in 1989?";
+            // 4. Subclaim Research Selection: With multiple subclaims and !scopeQuestionManuallyEdited,
+            // research uses claim's normalized assertion rather than currentConfirmedScopeQuestion.
+            let researchPayloadReceived = null;
+            researchMockQueue.push(async (b) => {
+                researchPayloadReceived = b;
+                return createResearchResponse(b.submission_id, "claim-beef-1", [
+                    {
+                        result_id: "hit_beef_1",
+                        query_id: "q_beef_1",
+                        claim_id: "claim-beef-1",
+                        url: "https://example.com/beef",
+                        title: "EU Beef Hormone Ban History",
+                        snippet: "The European Union instituted a ban on meat from cattle treated with growth hormones in 1989.",
+                        rank: 1,
+                        engine: "serper",
+                        is_snippet_only: true
+                    }
+                ]);
+            });
+
+            const rBtn1 = document.getElementById("btn-research-claim-beef-1");
+            rBtn1.click();
+            await delay(50);
+
+            assert(researchPayloadReceived !== null, "Research request sent to /api/research");
+            assert(
+                researchPayloadReceived.claim_text === claimBeef1.normalized_assertion,
+                "Multiple subclaims without manual edit uses subclaim assertion, not overall scope question"
+            );
+            const containerBeef1 = document.getElementById("research-container-claim-beef-1");
+            assert(containerBeef1.textContent.includes("EU Beef Hormone Ban History"), "Research results rendered on claim 1");
+
+            // 5. Scope Question Edit Invalidation: Editing scope question sets scopeQuestionManuallyEdited=true
+            // and clears rendered research panels and loading state.
+            scopeInput.value = "Did the European Union ban growth hormones in beef in 1989?";
             scopeInput.dispatchEvent(new Event("input"));
-            assert(window.__ScoopScope.currentConfirmedScopeQuestion.includes("1989"), "Confirmed scope question updated on input edit");
+            assert(window.__ScoopScope.scopeQuestionManuallyEdited === true, "scopeQuestionManuallyEdited set to true on input event");
+            assert(containerBeef1.innerHTML === "" && containerBeef1.classList.contains("hidden"), "Research panel cleared and hidden on scope edit");
 
-            // 4. Modifying input text invalidates confirmed scope snapshot
+            // 6. Research with scopeQuestionManuallyEdited=true uses currentConfirmedScopeQuestion
+            researchPayloadReceived = null;
+            researchMockQueue.push(async (b) => {
+                researchPayloadReceived = b;
+                return createResearchResponse(b.submission_id, "claim-beef-1", [
+                    {
+                        result_id: "hit_beef_2",
+                        query_id: "q_beef_2",
+                        claim_id: "claim-beef-1",
+                        url: "https://example.com/beef2",
+                        title: "Updated Scope Hit",
+                        snippet: "Growth hormones ban confirmed.",
+                        rank: 1,
+                        engine: "serper",
+                        is_snippet_only: true
+                    }
+                ]);
+            });
+
+            rBtn1.click();
+            await delay(50);
+
+            assert(
+                researchPayloadReceived.claim_text === "Did the European Union ban growth hormones in beef in 1989?",
+                "When scopeQuestionManuallyEdited is true, research uses currentConfirmedScopeQuestion"
+            );
+
+            // 7. Modifying draft input text invalidates confirmed scope snapshot
             inputText.value = "Europe bans hormone beef completely";
             inputText.dispatchEvent(new Event("input"));
             assert(document.getElementById("claims-outdated-banner") !== null, "Outdated draft banner shown on input edit");
-            const rBtn = claimsList.querySelector(".btn-research");
-            assert(rBtn.disabled === true, "Research button disabled after draft edit");
+            assert(rBtn1.disabled === true, "Research button disabled after draft edit");
             assert(clarSection.classList.contains("hidden"), "Clarification section remains hidden on draft edit");
 
             log("\n=================================================");

@@ -20,19 +20,21 @@ Last updated: 2026-10-15
 - **Endpoint**: `POST /api/clarify`
 - **Pydantic Schemas**:
   - `InvestigationPurpose`: `check_claim`, `understand_context`, `trace_origin`.
-  - `ClarificationExchange`: Tracks round index, question, selected choice, and free text.
-  - `ClarificationRequest`: Accepts text, source_url, round_index (1 or 2), history exchanges, and explicit_broad flag. Max 10,000 characters.
+  - `ClarificationExchange`: Tracks round index (1 or 2), question, selected choice, and free text.
+  - `ClarificationRequest`: Accepts text, source_url, round_index (ge=1, le=3), history exchanges, and explicit_broad flag. Max 10,000 characters.
   - `ClarificationResponse`: Returns structured analysis, `is_clear`, `clarification_needed`, `round_index`, `max_rounds_reached`, `question`, `choices` (normalized to exactly 3 choices), `interpreted_question`, `material_uncertainties`, `subclaims` (with UUIDs), `limitation_note`, and `status_message`.
 - **Legacy Compatibility**: `POST /api/extract` remains fully functional for prior integrations.
 
 ### 2. Gemini Clarification Adapter (`backend/app/gemini_adapter.py`)
 - **Structured Schema Enforced**: Uses `response_schema=ClarificationAnalysisLLM` with `CLARIFICATION_SYSTEM_INSTRUCTION`.
 - **Bounded Rounds Enforcement**:
-  - Unclear input at Round 1: prompts single highest-value question with exactly 3 coherent choices answering the same dimension + free text.
-  - Round 2: synthesizes user's choice or free text.
-  - **Third Round Impossible**: Hard ceiling at 2 rounds (`max_rounds_reached=True`, `clarification_needed=False`, `is_clear=True`). Any lingering ambiguity is documented in `material_uncertainties`.
+  - Unclear input at Round 1 (0 exchanges): prompts single highest-value question with exactly 3 coherent choices answering the same dimension + free text.
+  - Round 2 (1 exchange): allows returning a 2nd clarifying question (`clarification_needed=True, max_rounds_reached=False`) when `is_clear=False`.
+  - **Third Round Impossible**: Hard ceiling enforced when `len(exchanges) >= 2`, `round_index >= 3`, or `explicit_broad=True` (`max_rounds_reached=True`, `clarification_needed=False`, `is_clear=True`). Any lingering ambiguity is documented in `material_uncertainties`.
   - Clear input: immediately sets `is_clear=True`, `clarification_needed=False`, returning editable interpreted question and checkable subclaims without redundant questions.
-- **No Invented Particulars**:
+- **Strict Validation & No Invented Particulars**:
+  - When clarification is needed, requires valid question and at least 3 distinct choices; raises `GeminiAdapterError` instead of fabricating generic fallback choices.
+  - Subclaims remain `[]` if no checkable claims are extracted (no fabricated fallback factual subclaim).
   - Leaves unstated details as unknown (e.g. unspecified chemicals in beef remain unknown; never guesses hormones without evidence).
   - Preserves geographic designations (keeps "Europe" without silently assuming "EU" without a visible scope note).
   - Compound assertions: decomposes into linked subclaims while preserving original wording and causal relationships.
@@ -40,11 +42,14 @@ Last updated: 2026-10-15
 
 ### 3. Frontend Intake Flow & Confirmed Scope UI (`frontend/index.html`, `frontend/style.css`, `frontend/app.js`)
 - **Interactive Clarification Stage**:
-  - Renders clarification card for unclear inputs with round badge ("Round 1 of 2"), prominent question, exactly 3 distinct choice buttons, and a free-text input with "Continue" button.
+  - Renders clarification card for unclear inputs with round badge ("Round 1 of 2", "Round 2 of 2"), prominent question, exactly 3 distinct choice buttons, and a free-text input with "Continue" button.
+  - Disables broad inquiry button and free-text input during clarification loading to prevent duplicate requests.
   - "Investigate broad inquiry across all aspects" option available to proceed directly.
-- **Confirmed Scope Card**:
+- **Confirmed Scope Card & Subclaim Research Selection**:
   - Prominently displays: `"We will investigate: [editable question]"`.
   - Allows in-place editing of the inquiry question with "Update" action.
+  - Tracks `scopeQuestionManuallyEdited`: when multiple subclaims exist and scope has not been manually edited, researching a claim uses that claim's specific normalized assertion. When `scopeQuestionManuallyEdited` is true (or single claim), research targets the confirmed scope question.
+  - Invalidation on scope edit: editing the scope question or clicking Update increments `activeResearchSeq`, resets `activeResearchClaimId`, and clears all rendered research panels and loading states on claim cards.
   - Displays Material Unresolved Assumptions as an inspectable bullet list.
   - Displays honest limitation banner when purpose is `understand_context` or `trace_origin`:
     *"Dedicated context and origin tracing pipelines are planned for future milestones. You can investigate this as an editable factual research question below."*

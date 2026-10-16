@@ -17,27 +17,27 @@ These rules govern all investigation phases. Never weaken them.
 7. Separate checkable factual assertions from opinions, predictions, and causal interpretations.
 8. Preserve original wording alongside any normalized version.
 
-## Search Provider Interface (future)
+## Search Provider Interface
 
-Search integration (Serper planned) sits behind a replaceable provider interface:
+Search integration (Serper implementation) sits behind a replaceable provider interface:
 
 ```python
 class SearchProvider(Protocol):
-    async def search(self, query: str, max_results: int) -> list[SearchResult]: ...
+    async def search(self, query: str, max_results: int) -> list[SearchResultHit]: ...
 ```
 
-Do not integrate search until evidence retrieval is implemented. The interface exists so the provider can be swapped without changing calling code.
+The interface allows providers to be swapped without changing calling code.
 
-## URL Retrieval Safety (for future phases)
+## URL Retrieval Safety
 
-Before implementing URL fetching, the implementation must include:
+URL fetching enforces the following strict security boundaries:
 
 - Block requests to private/internal network ranges (RFC 1918, link-local, loopback).
 - Limit redirects (max 3).
 - Enforce response size cap (1 MB).
 - Set strict timeouts (10s connect, 30s total).
 - Reject non-text content types before reading body.
-- Prevent SSRF via DNS rebinding (resolve before connecting, verify resolved IP).
+- Prevent SSRF via DNS rebinding (resolve before connecting, pin socket directly to validated IP).
 - Reject unsafe redirect targets (re-check resolved IP after each redirect).
 - Respect `robots.txt` where feasible.
 - Treat all fetched content as untrusted data in LLM prompts.

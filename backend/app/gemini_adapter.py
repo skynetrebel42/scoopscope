@@ -75,7 +75,7 @@ Core Objectives:
      - All three choices must address the SAME dimension (e.g. all 3 are timeframes, or all 3 are entities, or all 3 are interpretations). Never mix dates, goals, and entities in one incoherent menu.
      - Never invent missing particulars: keep unstated details unknown (e.g. if an unspecified substance in beef is mentioned, keep it unknown; do not guess hormones or antibiotics without evidence; preserve "Europe" without silently assuming "EU" without confirmation or a visible unresolved scope note).
      - Preserve temporal intent: a current-status inquiry must not silently become a historical investigation, or vice versa.
-   - If prior clarification exchanges are provided (round 2 or prior answers), synthesize the user's choices into the confirmed scope. If round 2 is reached, set is_clear=true, summarize remaining assumptions in material_uncertainties, and finalize the question.
+   - When 1 prior exchange is provided (Round 2 of 2), synthesize the choice and only ask a follow-up question if a critical ambiguity still remains; when 2 prior exchanges are provided, set is_clear=true and place any remaining ambiguities in material_uncertainties.
 
 3. Split Compound Claims:
    - Break compound claims into linked checkable subclaims while preserving original wording and causal linkages.
@@ -315,7 +315,11 @@ class GeminiAdapter:
         ]
         if source_url:
             prompt_lines.append(f"\nSource URL: {source_url}")
-        prompt_lines.append(f"\nCurrent clarification round: {round_index} of 2")
+        prompt_lines.append(
+            f"\nCurrent clarification round: {round_index} of 2"
+            if round_index <= 2
+            else "\nFinal confirmation round: 2 clarification rounds completed"
+        )
         if exchanges:
             prompt_lines.append("\nPrior clarification exchanges:")
             for ex in exchanges:
@@ -347,6 +351,7 @@ class GeminiAdapter:
             submitted_text=text,
             source_url=source_url,
             round_index=round_index,
+            exchanges=exchanges,
             explicit_broad=explicit_broad,
         )
 
@@ -356,7 +361,8 @@ class GeminiAdapter:
         submitted_text: str,
         source_url: str | None,
         round_index: int,
-        explicit_broad: bool,
+        exchanges: list[ClarificationExchange] | None = None,
+        explicit_broad: bool = False,
     ) -> ClarificationResponse:
         """Parse, validate, and normalize clarification output."""
         raw_text = getattr(response, "text", None)
@@ -378,38 +384,40 @@ class GeminiAdapter:
             ) from exc
 
         # Determine round bounds & clarity
-        # If user explicitly selected broad inquiry, or round 2 was already reached, max rounds reached
-        max_rounds_reached = round_index >= 2 or explicit_broad
-        clarification_needed = (not analysis.is_clear) and (not max_rounds_reached) and (not explicit_broad)
-        is_clear = (not clarification_needed)
+        # Enforce hard ceiling only when len(exchanges) >= 2, round_index >= 3, or explicit_broad=True
+        num_exchanges = len(exchanges or [])
+        max_rounds_reached = (round_index >= 3) or (num_exchanges >= 2) or explicit_broad
+
+        if max_rounds_reached:
+            clarification_needed = False
+            is_clear = True
+        else:
+            clarification_needed = not analysis.is_clear
+            is_clear = not clarification_needed
 
         question: str | None = None
         choices: list[str] | None = None
 
         if clarification_needed:
-            question = analysis.clarification_question or "Which aspect of this statement would you like to investigate?"
-            # Normalize choices to exactly 3 distinct, non-empty items
+            if not analysis.clarification_question or not analysis.clarification_question.strip():
+                raise GeminiAdapterError("Model requested clarification but omitted a clarifying question.")
+            question = analysis.clarification_question.strip()
+
             raw_choices = analysis.clarification_choices or []
-            cleaned = []
+            cleaned: list[str] = []
             for c in raw_choices:
                 if c and isinstance(c, str):
                     s = c.strip()
                     if s and s not in cleaned:
                         cleaned.append(s)
-            if len(cleaned) >= 3:
-                choices = cleaned[:3]
-            elif len(cleaned) == 2:
-                choices = [cleaned[0], cleaned[1], "General overview across all aspects"]
-            elif len(cleaned) == 1:
-                choices = [cleaned[0], "Historical background and context", "Current status and latest updates"]
-            else:
-                choices = [
-                    "Current status and latest updates",
-                    "Historical background and context",
-                    "General overview across all aspects",
-                ]
 
-        # Convert subclaims to ExtractedClaim with UUIDs
+            if len(cleaned) < 3:
+                raise GeminiAdapterError(
+                    f"Model requested clarification but returned fewer than 3 valid choices ({len(cleaned)} found)."
+                )
+            choices = cleaned[:3]
+
+        # Convert subclaims to ExtractedClaim with UUIDs (no fabricated fallback subclaim)
         subclaims: list[ExtractedClaim] = []
         if analysis.subclaims:
             for sc in analysis.subclaims:
@@ -424,15 +432,6 @@ class GeminiAdapter:
                         qualifications=sc.qualifications,
                     )
                 )
-        else:
-            # Fallback single subclaim if model omitted subclaims
-            subclaims.append(
-                ExtractedClaim(
-                    original_wording=submitted_text[:200],
-                    normalized_assertion=analysis.interpreted_question,
-                    claim_type=ClaimType.FACTUAL,
-                )
-            )
 
         # Limitation note for context and origin inquiries
         limitation_note: str | None = None
@@ -444,7 +443,7 @@ class GeminiAdapter:
 
         if clarification_needed:
             status_message = f"Clarification requested (round {round_index} of 2) · 3 options available"
-        elif max_rounds_reached and round_index >= 2:
+        elif max_rounds_reached and (round_index >= 3 or num_exchanges >= 2):
             status_message = "Clarification completed (2 rounds reached) · Remaining uncertainties documented below"
         else:
             status_message = "Inquiry scope confirmed · Ready to select a checkable claim for research"

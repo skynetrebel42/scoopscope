@@ -265,26 +265,50 @@ async def test_acceptance_check_3_clear_input_bypasses_redundant_clarification()
 
 
 @pytest.mark.anyio
-async def test_acceptance_check_3_third_automatic_round_is_impossible():
-    """Even if an LLM returns is_clear=false in round 2, the system guarantees max_rounds_reached and terminates."""
+@pytest.mark.anyio
+async def test_acceptance_check_3_full_two_round_clarification_flow_and_hard_ceiling():
+    """Test full 2-round clarification flow:
+    - Round 1 (0 exchanges): unclear -> clarification_needed=True, max_rounds_reached=False.
+    - Round 2 (1 exchange): unclear -> clarification_needed=True, max_rounds_reached=False, returning a second question.
+    - Round 3 (2 exchanges): even if LLM returns is_clear=False, hard ceiling enforces max_rounds_reached=True and terminates.
+    """
     adapter = GeminiAdapter()
     text = "The new regulation will harm businesses."
 
-    # Model stubbornly says is_clear=false even in round 2
-    mock_llm_still_unclear = {
+    mock_r1 = {
         "purpose": "check_claim",
         "is_clear": False,
-        "interpreted_question": "Does the specified regulation cause economic harm to local businesses?",
-        "material_uncertainties": ["Regulation name not specified", "Jurisdiction and industry not defined"],
-        "clarification_question": "Which regulation do you mean?",
-        "clarification_choices": ["Option 1", "Option 2", "Option 3"],
+        "interpreted_question": "Does the new regulation cause economic harm to businesses?",
+        "material_uncertainties": ["Regulation name not specified"],
+        "clarification_question": "Which specific regulation are you inquiring about?",
+        "clarification_choices": ["Local zoning regulation", "State tax regulation", "Federal environmental rule"],
+        "subclaims": []
+    }
+
+    mock_r2 = {
+        "purpose": "check_claim",
+        "is_clear": False,
+        "interpreted_question": "Does the local zoning regulation cause economic harm to small businesses?",
+        "material_uncertainties": ["Industry sector not defined"],
+        "clarification_question": "Which business sector would you like to investigate?",
+        "clarification_choices": ["Retail storefronts", "Restaurants and hospitality", "Manufacturing and warehousing"],
+        "subclaims": []
+    }
+
+    mock_r3_stubborn = {
+        "purpose": "check_claim",
+        "is_clear": False,
+        "interpreted_question": "Does the local zoning regulation cause economic harm to restaurants in Los Angeles?",
+        "material_uncertainties": ["Specific municipal code section unstated"],
+        "clarification_question": "Which city code section?",
+        "clarification_choices": ["Section A", "Section B", "Section C"],
         "subclaims": [
             {
                 "original_wording": "The new regulation will harm businesses.",
-                "normalized_assertion": "The new regulation causes economic harm to businesses.",
+                "normalized_assertion": "The local zoning regulation causes economic harm to restaurants.",
                 "claim_type": "prediction",
                 "explicit_date": None,
-                "explicit_location": None,
+                "explicit_location": "Los Angeles",
                 "explicit_quantity": None,
                 "qualifications": None
             }
@@ -292,23 +316,116 @@ async def test_acceptance_check_3_third_automatic_round_is_impossible():
     }
 
     with patch.object(adapter, "_client") as mock_client:
-        mock_client.models.generate_content.return_value = _mock_gemini_response(mock_llm_still_unclear)
-        resp = await adapter.clarify_inquiry(
-            text=text,
-            round_index=2,  # Round 2
-            exchanges=[
-                ClarificationExchange(round_index=1, question="Which regulation?", selected_choice="Local rule")
-            ],
-        )
+        # Round 1
+        mock_client.models.generate_content.return_value = _mock_gemini_response(mock_r1)
+        r1_resp = await adapter.clarify_inquiry(text=text, round_index=1, exchanges=[])
+        assert r1_resp.clarification_needed is True
+        assert r1_resp.max_rounds_reached is False
+        assert r1_resp.round_index == 1
+        assert r1_resp.question == "Which specific regulation are you inquiring about?"
+        assert r1_resp.choices is not None
+        assert len(r1_resp.choices) == 3
 
-    # Acceptance requirement: A third automatic round is strictly IMPOSSIBLE
-    assert resp.max_rounds_reached is True
-    assert resp.clarification_needed is False
-    assert resp.is_clear is True
-    assert resp.question is None
-    assert resp.choices is None
-    # Material uncertainties remain documented for the user to inspect
-    assert len(resp.material_uncertainties) >= 1
+        # Round 2: 1 prior exchange provided -> second question returned
+        exchanges_r2 = [
+            ClarificationExchange(
+                round_index=1,
+                question=r1_resp.question,
+                selected_choice=r1_resp.choices[0],
+            )
+        ]
+        mock_client.models.generate_content.return_value = _mock_gemini_response(mock_r2)
+        r2_resp = await adapter.clarify_inquiry(text=text, round_index=2, exchanges=exchanges_r2)
+        assert r2_resp.clarification_needed is True
+        assert r2_resp.max_rounds_reached is False
+        assert r2_resp.round_index == 2
+        assert r2_resp.question == "Which business sector would you like to investigate?"
+        assert r2_resp.choices is not None
+        assert len(r2_resp.choices) == 3
+
+        # Round 3: 2 prior exchanges provided -> Hard ceiling reached (3rd round impossible)!
+        exchanges_r3 = exchanges_r2 + [
+            ClarificationExchange(
+                round_index=2,
+                question=r2_resp.question,
+                selected_choice=r2_resp.choices[1],
+            )
+        ]
+        mock_client.models.generate_content.return_value = _mock_gemini_response(mock_r3_stubborn)
+        r3_resp = await adapter.clarify_inquiry(text=text, round_index=3, exchanges=exchanges_r3)
+        assert r3_resp.max_rounds_reached is True
+        assert r3_resp.clarification_needed is False
+        assert r3_resp.is_clear is True
+        assert r3_resp.round_index == 3
+        assert r3_resp.question is None
+        assert r3_resp.choices is None
+        assert len(r3_resp.material_uncertainties) >= 1
+
+
+@pytest.mark.anyio
+async def test_clarification_raises_when_fewer_than_three_choices():
+    """When clarification_needed is True and model returns fewer than 3 choices, GeminiAdapterError is raised."""
+    adapter = GeminiAdapter()
+    text = "Some ambiguous text"
+    mock_bad_choices = {
+        "purpose": "check_claim",
+        "is_clear": False,
+        "interpreted_question": "Interpreted question",
+        "material_uncertainties": [],
+        "clarification_question": "Which aspect?",
+        "clarification_choices": ["Only choice 1", "Only choice 2"],
+        "subclaims": []
+    }
+
+    with patch.object(adapter, "_client") as mock_client:
+        mock_client.models.generate_content.return_value = _mock_gemini_response(mock_bad_choices)
+        with pytest.raises(GeminiAdapterError) as exc_info:
+            await adapter.clarify_inquiry(text=text, round_index=1)
+        assert "fewer than 3 valid choices" in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_clarification_raises_when_question_missing():
+    """When clarification_needed is True and model omits clarification_question, GeminiAdapterError is raised."""
+    adapter = GeminiAdapter()
+    text = "Some ambiguous text"
+    mock_no_question = {
+        "purpose": "check_claim",
+        "is_clear": False,
+        "interpreted_question": "Interpreted question",
+        "material_uncertainties": [],
+        "clarification_question": None,
+        "clarification_choices": ["Choice 1", "Choice 2", "Choice 3"],
+        "subclaims": []
+    }
+
+    with patch.object(adapter, "_client") as mock_client:
+        mock_client.models.generate_content.return_value = _mock_gemini_response(mock_no_question)
+        with pytest.raises(GeminiAdapterError) as exc_info:
+            await adapter.clarify_inquiry(text=text, round_index=1)
+        assert "omitted a clarifying question" in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_clarification_preserves_empty_subclaims_without_fabrication():
+    """When analysis.subclaims is empty, response.subclaims is [] and no subclaim is fabricated."""
+    adapter = GeminiAdapter()
+    text = "Unclear statement without extractable claims"
+    mock_empty_subclaims = {
+        "purpose": "check_claim",
+        "is_clear": True,
+        "interpreted_question": "What is being claimed?",
+        "material_uncertainties": ["No checkable factual claims extracted"],
+        "clarification_question": None,
+        "clarification_choices": None,
+        "subclaims": []
+    }
+
+    with patch.object(adapter, "_client") as mock_client:
+        mock_client.models.generate_content.return_value = _mock_gemini_response(mock_empty_subclaims)
+        resp = await adapter.clarify_inquiry(text=text, round_index=1)
+
+    assert resp.subclaims == []
 
 
 @pytest.mark.anyio
