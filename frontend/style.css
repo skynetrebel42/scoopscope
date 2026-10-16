@@ -857,6 +857,331 @@ body::before {
     border: 1px solid var(--border-subtle);
 }
 
+/* --- Clarification Section (Milestone 3A) --- */
+.clarification-card {
+    background: var(--bg-card);
+    border: 1px solid rgba(62, 207, 180, 0.25);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    animation: slideDown 0.3s ease-out;
+}
+
+.clarification-card.hidden {
+    display: none;
+}
+
+.clarification-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.5rem;
+}
+
+.badge-round {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background: rgba(62, 207, 180, 0.15);
+    color: var(--accent);
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid rgba(62, 207, 180, 0.3);
+}
+
+.clarification-tag {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-tertiary);
+}
+
+.clarification-question {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.4;
+    margin-bottom: 0.35rem;
+}
+
+.clarification-subtitle {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+
+.clarification-choices-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.btn-choice {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-input);
+    color: var(--text-primary);
+    font-family: var(--font-family);
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-align: left;
+    padding: 0.85rem 1.1rem;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.btn-choice:hover:not(:disabled) {
+    background: var(--bg-card-hover);
+    border-color: var(--accent);
+    transform: translateX(2px);
+    box-shadow: 0 2px 12px rgba(62, 207, 180, 0.12);
+}
+
+.btn-choice:active:not(:disabled) {
+    transform: translateX(0);
+}
+
+.btn-choice:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.clarification-freetext-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.freetext-row {
+    display: flex;
+    gap: 0.6rem;
+}
+
+.freetext-row .form-input {
+    flex: 1;
+}
+
+.btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+    border: 1px solid var(--border-input);
+    font-family: var(--font-family);
+    font-size: 0.88rem;
+    font-weight: 600;
+    padding: 0.65rem 1.25rem;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition);
+    white-space: nowrap;
+    position: relative;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    border-color: var(--border-focus);
+    background: var(--bg-input);
+}
+
+.btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.clarification-broad-container {
+    padding-top: 0.25rem;
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    font-family: var(--font-family);
+    font-size: 0.82rem;
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 0;
+    transition: color var(--transition);
+}
+
+.btn-link:hover {
+    color: var(--accent);
+}
+
+/* --- Confirmed Scope Card (Milestone 3A) --- */
+.confirmed-scope-card {
+    background: var(--bg-card);
+    border: 1px solid rgba(62, 207, 180, 0.2);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.confirmed-scope-card.hidden {
+    display: none;
+}
+
+.scope-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.scope-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    background: var(--accent-dim);
+    padding: 0.2rem 0.55rem;
+    border-radius: var(--radius-sm);
+}
+
+.scope-purpose-badge {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    padding: 0.2rem 0.55rem;
+    border-radius: var(--radius-sm);
+    text-transform: capitalize;
+}
+
+.scope-statement-box {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.scope-label {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.scope-input-wrapper {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.scope-question-input {
+    flex: 1;
+    background: var(--bg-input);
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-md);
+    padding: 0.6rem 0.85rem;
+    font-family: var(--font-family);
+    font-size: 0.92rem;
+    color: var(--text-primary);
+    font-weight: 500;
+    transition: border-color var(--transition);
+}
+
+.scope-question-input:focus {
+    outline: none;
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.btn-sm-secondary {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-input);
+    color: var(--text-secondary);
+    font-family: var(--font-family);
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.5rem 0.85rem;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.btn-sm-secondary:hover {
+    color: var(--text-primary);
+    border-color: var(--border-focus);
+}
+
+.unresolved-scope-container {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 0.75rem 1rem;
+}
+
+.unresolved-scope-container.hidden {
+    display: none;
+}
+
+.unresolved-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fbbf24;
+    margin-bottom: 0.4rem;
+}
+
+.unresolved-list {
+    list-style: disc;
+    padding-left: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.unresolved-item {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.limitation-banner {
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.25);
+    border-radius: var(--radius-md);
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    color: #fbbf24;
+    font-size: 0.84rem;
+}
+
+.limitation-banner.hidden {
+    display: none;
+}
+
+.limitation-icon {
+    font-size: 1rem;
+    line-height: 1.2;
+}
+
+.limitation-content {
+    flex: 1;
+    color: var(--text-secondary);
+}
+
+.limitation-content strong {
+    color: #fbbf24;
+}
+
 /* --- Responsive --- */
 @media (max-width: 540px) {
     .app-container {

@@ -34,6 +34,13 @@ class ClaimType(str, enum.Enum):
     CAUSAL = "causal"
 
 
+class InvestigationPurpose(str, enum.Enum):
+    """Identified primary intent of the user's inquiry."""
+    CHECK_CLAIM = "check_claim"
+    UNDERSTAND_CONTEXT = "understand_context"
+    TRACE_ORIGIN = "trace_origin"
+
+
 # ---------------------------------------------------------------------------
 # LLM structured-output schema  (sent to Gemini via response_schema)
 # ---------------------------------------------------------------------------
@@ -73,6 +80,43 @@ class ClaimExtractionResultLLM(BaseModel):
     """Top-level schema the LLM must return."""
     claims: list[ExtractedClaimLLM] = Field(
         description="List of individual claims extracted from the input text."
+    )
+
+
+class ClarificationAnalysisLLM(BaseModel):
+    """Schema the LLM produces for inquiry clarification and scope analysis."""
+    purpose: InvestigationPurpose = Field(
+        description="Identified user goal: check_claim (verify factual assertions), "
+                    "understand_context (broader background/landscape), or trace_origin (find source/first speaker)."
+    )
+    is_clear: bool = Field(
+        description="True if input has a clear, unambiguous checkable claim without material ambiguities. "
+                    "False if material ambiguities (scope, entity, timeframe, compound terms) require clarification."
+    )
+    interpreted_question: str = Field(
+        description="Concise, clear, plain-language question representing what will be investigated. "
+                    "If unclear, this should reflect the best interpretation so far."
+    )
+    material_uncertainties: list[str] = Field(
+        default_factory=list,
+        description="Material scope uncertainties or unstated assumptions (e.g. 'Specific substance not stated in input', "
+                    "'Jurisdiction Europe vs EU unconfirmed', 'Timeframe not specified'). Never invent missing particulars."
+    )
+    clarification_question: Optional[str] = Field(
+        default=None,
+        description="The single highest-value clarifying question to resolve the most critical ambiguity. "
+                    "Null if is_clear is true."
+    )
+    clarification_choices: Optional[list[str]] = Field(
+        default=None,
+        description="Exactly three distinct, mutually exclusive choices answering the clarification_question. "
+                    "All three must address the same dimension (e.g. all 3 are timeframes, or all 3 are entities). "
+                    "Null if is_clear is true."
+    )
+    subclaims: list[ExtractedClaimLLM] = Field(
+        default_factory=list,
+        description="Individual checkable claims or decomposed parts of compound claims. "
+                    "Each subclaim preserves original wording and causal relationships without inventing particulars."
     )
 
 
@@ -128,6 +172,64 @@ class ErrorResponse(BaseModel):
     detail: Optional[str] = None
     submitted_text: Optional[str] = None
     source_url: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Clarification API models (Milestone 3A)
+# ---------------------------------------------------------------------------
+
+class ClarificationExchange(BaseModel):
+    """A single round of clarification question and user response."""
+    round_index: int = Field(..., ge=1, le=2)
+    question: str
+    selected_choice: Optional[str] = None
+    free_text: Optional[str] = None
+
+
+class ClarificationRequest(BaseModel):
+    """Request to clarify and confirm an inquiry before research."""
+    text: str = Field(
+        ...,
+        min_length=1,
+        max_length=10_000,
+        description="The statement or question submitted by the user.",
+    )
+    source_url: Optional[str] = Field(
+        default=None,
+        max_length=2048,
+        description="Optional URL where the statement was found.",
+    )
+    round_index: int = Field(default=1, ge=1, le=2)
+    exchanges: list[ClarificationExchange] = Field(default_factory=list)
+    explicit_broad: bool = Field(
+        default=False,
+        description="If True, the user elected to proceed with a broad inquiry after clarification rounds.",
+    )
+
+
+class ClarificationResponse(BaseModel):
+    """Result of inquiry clarification and scope confirmation."""
+    submission_id: str = Field(
+        default_factory=lambda: uuid.uuid4().hex,
+        description="Unique ID for this submission (prevents stale overwrites).",
+    )
+    submitted_text: str
+    source_url: Optional[str] = None
+    purpose: InvestigationPurpose
+    is_clear: bool
+    clarification_needed: bool
+    round_index: int
+    max_rounds_reached: bool
+    question: Optional[str] = None
+    choices: Optional[list[str]] = None
+    interpreted_question: str
+    material_uncertainties: list[str] = Field(default_factory=list)
+    subclaims: list[ExtractedClaim] = Field(default_factory=list)
+    limitation_note: Optional[str] = None
+    status_message: str
+    clarified_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="ScoopScope — paste a statement, extract structured claims for investigation.">
-    <title>ScoopScope — Claim Extractor</title>
+    <meta name="description" content="ScoopScope — paste a statement, clarify inquiry scope, and retrieve evidence.">
+    <title>ScoopScope — Claim & Source Investigator</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -23,7 +23,7 @@
                 </div>
                 <h1 class="logo-text">ScoopScope</h1>
             </div>
-            <p class="app-tagline">Extract structured claims from any statement</p>
+            <p class="app-tagline">Extract, clarify, and investigate claims from any statement</p>
         </header>
 
         <!-- Input Section -->
@@ -34,7 +34,7 @@
                     <textarea
                         id="input-text"
                         class="form-textarea"
-                        placeholder="Paste a statement containing one or more claims…"
+                        placeholder="Paste a statement or question containing one or more claims…"
                         rows="6"
                         maxlength="10000"
                         required
@@ -55,7 +55,7 @@
                     />
                 </div>
                 <button id="submit-btn" type="submit" class="btn-primary">
-                    <span class="btn-label">Extract Claims</span>
+                    <span class="btn-label">Clarify & Investigate</span>
                     <span class="btn-spinner" aria-hidden="true"></span>
                 </button>
             </form>
@@ -73,10 +73,71 @@
                 <button id="error-dismiss" class="error-dismiss" aria-label="Dismiss">&times;</button>
             </div>
 
+            <!-- Clarification Section (Milestone 3A) -->
+            <section id="clarification-section" class="clarification-card hidden" aria-live="polite">
+                <div class="clarification-header">
+                    <div class="clarification-title-row">
+                        <span id="clarification-round-badge" class="badge-round">Round 1 of 2</span>
+                        <span class="clarification-tag">Scope Clarification</span>
+                    </div>
+                    <h2 id="clarification-question" class="clarification-question"></h2>
+                    <p class="clarification-subtitle">Select an option below or specify your focus to ensure ScoopScope investigates the exact question you intend:</p>
+                </div>
+                <div id="clarification-choices-group" class="clarification-choices-group">
+                    <!-- 3 mutually exclusive option buttons rendered dynamically -->
+                </div>
+                <div class="clarification-freetext-group">
+                    <label for="clarification-freetext" class="form-label">Or clarify in your own words:</label>
+                    <div class="freetext-row">
+                        <input
+                            id="clarification-freetext"
+                            class="form-input"
+                            type="text"
+                            placeholder="Type a specific timeframe, entity, or nuance…"
+                        />
+                        <button id="clarification-submit-btn" type="button" class="btn-secondary">
+                            <span class="btn-label">Continue</span>
+                            <span class="btn-spinner" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                </div>
+                <div id="clarification-broad-container" class="clarification-broad-container hidden">
+                    <button id="btn-broad-inquiry" type="button" class="btn-link">
+                        Investigate broad inquiry across all aspects &rarr;
+                    </button>
+                </div>
+            </section>
+
             <!-- Results Section -->
             <section id="results-section" class="results-section hidden" aria-live="polite">
+                <!-- Confirmed Inquiry Scope (Milestone 3A) -->
+                <div id="confirmed-scope-card" class="confirmed-scope-card">
+                    <div class="scope-header-row">
+                        <span class="scope-badge">Confirmed Inquiry Scope</span>
+                        <span id="scope-purpose-badge" class="scope-purpose-badge">Check a claim</span>
+                    </div>
+                    <div class="scope-statement-box">
+                        <label for="scope-question-input" class="scope-label">We will investigate:</label>
+                        <div class="scope-input-wrapper">
+                            <input id="scope-question-input" type="text" class="scope-question-input" />
+                            <button id="scope-update-btn" type="button" class="btn-sm-secondary">Update</button>
+                        </div>
+                    </div>
+                    <div id="unresolved-scope-container" class="unresolved-scope-container hidden">
+                        <div class="unresolved-title">Material Unresolved Assumptions / Scope Notes:</div>
+                        <ul id="unresolved-list" class="unresolved-list"></ul>
+                    </div>
+                    <div id="limitation-note-banner" class="notice-banner limitation-banner hidden">
+                        <span class="limitation-icon">ℹ</span>
+                        <div class="limitation-content">
+                            <strong>Investigation note:</strong>
+                            <span id="limitation-note-text"></span>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="results-header">
-                    <h2 class="results-title">Extracted Claims</h2>
+                    <h2 class="results-title">Checkable Claims</h2>
                     <span id="results-status" class="results-status"></span>
                 </div>
                 <div class="submitted-context">
@@ -89,15 +150,15 @@
                 </div>
                 <div id="claims-list" class="claims-list"></div>
                 <div class="results-footer">
-                    <p class="evidence-notice">
-                        Claims extracted. Evidence research not yet performed.
+                    <p id="evidence-stage-notice" class="evidence-notice">
+                        Inquiry scope confirmed. Select a claim above to research real sources.
                     </p>
                 </div>
             </section>
         </main>
 
         <footer class="app-footer">
-            <p>ScoopScope v0.1 — Claim extraction only. No verdicts, no simulated research.</p>
+            <p>ScoopScope v0.2 — Inquiry clarification & evidence research. No automated truth scores or simulated verdicts.</p>
         </footer>
     </div>
 

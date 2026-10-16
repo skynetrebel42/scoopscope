@@ -20,6 +20,8 @@ from app.gemini_adapter import (
     GeminiAdapterError,
 )
 from app.models import (
+    ClarificationRequest,
+    ClarificationResponse,
     ErrorResponse,
     ExtractionRequest,
     ExtractionResponse,
@@ -151,6 +153,87 @@ async def extract_claims(req: ExtractionRequest):
         source_url=req.source_url,
         claims=claims,
     )
+
+
+@app.post(
+    "/api/clarify",
+    response_model=ClarificationResponse,
+    responses={
+        400: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+async def clarify_inquiry(req: ClarificationRequest):
+    """Clarify inquiry intent, resolve scope ambiguities, and confirm checkable claims.
+
+    Enforces bounds: max 10,000 chars, max 2 clarification rounds.
+    Returns 503 if credentials are missing or model fails.
+    """
+    text = req.text.strip()
+    if not text:
+        return JSONResponse(
+            status_code=400,
+            content=ErrorResponse(
+                error="Empty input",
+                detail="Please provide a statement or inquiry to investigate.",
+                submitted_text=req.text,
+                source_url=req.source_url,
+            ).model_dump(),
+        )
+
+    if len(text) > settings.max_input_chars:
+        return JSONResponse(
+            status_code=400,
+            content=ErrorResponse(
+                error="Input too long",
+                detail=f"Maximum {settings.max_input_chars:,} characters allowed.",
+                submitted_text=req.text,
+                source_url=req.source_url,
+            ).model_dump(),
+        )
+
+    try:
+        response = await gemini.clarify_inquiry(
+            text=text,
+            source_url=req.source_url,
+            round_index=req.round_index,
+            exchanges=req.exchanges,
+            explicit_broad=req.explicit_broad,
+        )
+        return response
+    except CredentialsMissingError as exc:
+        logger.error("Credentials missing: %s", exc)
+        return JSONResponse(
+            status_code=503,
+            content=ErrorResponse(
+                error="Credentials not configured",
+                detail=str(exc),
+                submitted_text=req.text,
+                source_url=req.source_url,
+            ).model_dump(),
+        )
+    except GeminiAdapterError as exc:
+        logger.error("Gemini adapter error: %s", exc)
+        return JSONResponse(
+            status_code=503,
+            content=ErrorResponse(
+                error="Clarification failed",
+                detail=str(exc),
+                submitted_text=req.text,
+                source_url=req.source_url,
+            ).model_dump(),
+        )
+    except Exception as exc:
+        logger.exception("Unexpected error during clarification")
+        return JSONResponse(
+            status_code=500,
+            content=ErrorResponse(
+                error="Internal error",
+                detail="An unexpected error occurred. Please try again.",
+                submitted_text=req.text,
+                source_url=req.source_url,
+            ).model_dump(),
+        )
 
 
 @app.post(

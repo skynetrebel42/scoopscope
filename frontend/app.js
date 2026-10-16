@@ -18,6 +18,27 @@
     const errorDismiss = document.getElementById("error-dismiss");
     const errorRetry = document.getElementById("error-retry");
 
+    // Milestone 3A: Clarification DOM elements
+    const clarificationSection = document.getElementById("clarification-section");
+    const clarificationRoundBadge = document.getElementById("clarification-round-badge");
+    const clarificationQuestion = document.getElementById("clarification-question");
+    const clarificationChoicesGroup = document.getElementById("clarification-choices-group");
+    const clarificationFreetext = document.getElementById("clarification-freetext");
+    const clarificationSubmitBtn = document.getElementById("clarification-submit-btn");
+    const clarificationBroadContainer = document.getElementById("clarification-broad-container");
+    const btnBroadInquiry = document.getElementById("btn-broad-inquiry");
+
+    // Milestone 3A: Confirmed Scope DOM elements
+    const confirmedScopeCard = document.getElementById("confirmed-scope-card");
+    const scopePurposeBadge = document.getElementById("scope-purpose-badge");
+    const scopeQuestionInput = document.getElementById("scope-question-input");
+    const scopeUpdateBtn = document.getElementById("scope-update-btn");
+    const unresolvedScopeContainer = document.getElementById("unresolved-scope-container");
+    const unresolvedList = document.getElementById("unresolved-list");
+    const limitationNoteBanner = document.getElementById("limitation-note-banner");
+    const limitationNoteText = document.getElementById("limitation-note-text");
+    const evidenceStageNotice = document.getElementById("evidence-stage-notice");
+
     const resultsSection = document.getElementById("results-section");
     const resultsStatus = document.getElementById("results-status");
     const submittedText = document.getElementById("submitted-text");
@@ -30,20 +51,31 @@
     let currentSubmissionId = null;
     let currentSourceUrl = null;
 
+    // Milestone 3A: Clarification & Scope state
+    let currentClarificationData = null;
+    let clarificationExchanges = [];
+    let currentConfirmedScopeQuestion = "";
+
     // Research action state tracking to prevent stale overwrites and duplicate runs
     let activeResearchSeq = 0;
     let activeResearchClaimId = null;
 
-    // --- Input edit invalidation (R4) ---
+    // --- Input edit invalidation (R4 + Milestone 3A) ---
     function handleInputEdit() {
-        // 1. Invalidate pending extraction so in-flight responses are discarded
+        // 1. Invalidate pending extraction/clarification so in-flight responses are discarded
         currentSubmissionSeq++;
-        // 2. Clear extraction loading state
+        // 2. Clear loading states
         setLoading(false);
+        setClarificationLoading(false);
         // 3. Invalidate active research ownership
         activeResearchSeq++;
         activeResearchClaimId = null;
-        // 4. Mark existing rendered claims snapshot as outdated and disable research actions
+        // 4. Hide active clarification
+        if (clarificationSection) {
+            clarificationSection.classList.add("hidden");
+        }
+        clarificationExchanges = [];
+        // 5. Mark existing rendered claims snapshot as outdated and disable research actions
         markSnapshotOutdated();
     }
 
@@ -96,7 +128,7 @@
 
     errorDismiss.addEventListener("click", hideError);
 
-    // --- Loading state ---
+    // --- Loading states ---
     function setLoading(loading) {
         if (loading) {
             submitBtn.classList.add("loading");
@@ -104,6 +136,27 @@
         } else {
             submitBtn.classList.remove("loading");
             submitBtn.removeAttribute("aria-busy");
+        }
+    }
+
+    function setClarificationLoading(loading) {
+        if (!clarificationSubmitBtn) return;
+        if (loading) {
+            clarificationSubmitBtn.classList.add("loading");
+            clarificationSubmitBtn.setAttribute("aria-busy", "true");
+            clarificationSubmitBtn.disabled = true;
+            if (clarificationChoicesGroup) {
+                const choiceBtns = clarificationChoicesGroup.querySelectorAll(".btn-choice");
+                choiceBtns.forEach(b => b.disabled = true);
+            }
+        } else {
+            clarificationSubmitBtn.classList.remove("loading");
+            clarificationSubmitBtn.removeAttribute("aria-busy");
+            clarificationSubmitBtn.disabled = false;
+            if (clarificationChoicesGroup) {
+                const choiceBtns = clarificationChoicesGroup.querySelectorAll(".btn-choice");
+                choiceBtns.forEach(b => b.disabled = false);
+            }
         }
     }
 
@@ -118,7 +171,129 @@
         }
     }
 
-    // --- Render claims ---
+    // --- Clarification Section Logic (Milestone 3A) ---
+    function renderClarification(data, seq) {
+        if (seq !== currentSubmissionSeq) return;
+
+        currentClarificationData = data;
+        const staleBanner = document.getElementById("claims-outdated-banner");
+        if (staleBanner) staleBanner.remove();
+
+        resultsSection.classList.add("hidden");
+        if (clarificationSection) {
+            clarificationSection.classList.remove("hidden");
+        }
+
+        if (clarificationRoundBadge) {
+            clarificationRoundBadge.textContent = `Round ${data.round_index} of 2`;
+        }
+        if (clarificationQuestion) {
+            clarificationQuestion.textContent = data.question || "Which aspect of this statement would you like to investigate?";
+        }
+
+        if (clarificationChoicesGroup) {
+            clarificationChoicesGroup.innerHTML = "";
+            const choices = data.choices || [];
+            choices.forEach((choiceText, idx) => {
+                const choiceBtn = document.createElement("button");
+                choiceBtn.type = "button";
+                choiceBtn.className = "btn-choice";
+                choiceBtn.id = `btn-choice-${idx + 1}`;
+                choiceBtn.textContent = choiceText;
+                choiceBtn.addEventListener("click", () => {
+                    executeClarificationChoice(choiceText, null, false);
+                });
+                clarificationChoicesGroup.appendChild(choiceBtn);
+            });
+        }
+
+        if (clarificationFreetext) {
+            clarificationFreetext.value = "";
+        }
+
+        if (clarificationBroadContainer) {
+            clarificationBroadContainer.classList.remove("hidden");
+        }
+
+        if (clarificationSection) {
+            clarificationSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    }
+
+    async function executeClarificationChoice(choiceText, freeText, explicitBroad) {
+        if (!currentClarificationData) return;
+
+        hideError();
+        const seq = ++currentSubmissionSeq;
+        activeResearchSeq++;
+        activeResearchClaimId = null;
+
+        // Record exchange
+        clarificationExchanges.push({
+            round_index: currentClarificationData.round_index,
+            question: currentClarificationData.question || "Which aspect would you like to investigate?",
+            selected_choice: choiceText || null,
+            free_text: freeText || null,
+        });
+
+        setClarificationLoading(true);
+
+        const nextRound = currentClarificationData.round_index + 1;
+        const body = {
+            text: inputText.value,
+            source_url: sourceUrl.value.trim() || null,
+            round_index: nextRound,
+            exchanges: clarificationExchanges,
+            explicit_broad: Boolean(explicitBroad),
+        };
+
+        try {
+            const res = await fetch("/api/clarify", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+
+            if (seq !== currentSubmissionSeq) return;
+
+            let data;
+            try {
+                data = await res.json();
+            } catch (parseErr) {
+                if (seq !== currentSubmissionSeq) return;
+                showError("Response error", "Server returned an unparseable response.");
+                return;
+            }
+
+            if (seq !== currentSubmissionSeq) return;
+
+            if (!res.ok) {
+                showError(
+                    data.error || `Error ${res.status}`,
+                    data.detail || "Clarification failed."
+                );
+                return;
+            }
+
+            if (data.clarification_needed) {
+                renderClarification(data, seq);
+            } else {
+                if (clarificationSection) {
+                    clarificationSection.classList.add("hidden");
+                }
+                renderResults(data, seq);
+            }
+        } catch (err) {
+            if (seq !== currentSubmissionSeq) return;
+            showError("Network error", "Could not reach the server during clarification.");
+        } finally {
+            if (seq === currentSubmissionSeq) {
+                setClarificationLoading(false);
+            }
+        }
+    }
+
+    // --- Render Confirmed Scope and Checkable Claims ---
     function renderResults(data, seq) {
         if (seq !== currentSubmissionSeq) {
             return;
@@ -127,6 +302,10 @@
         const staleBanner = document.getElementById("claims-outdated-banner");
         if (staleBanner) {
             staleBanner.remove();
+        }
+
+        if (clarificationSection) {
+            clarificationSection.classList.add("hidden");
         }
 
         currentSubmissionId = data.submission_id || null;
@@ -145,26 +324,74 @@
             submittedUrlRow.classList.add("hidden");
         }
 
-        // Status line.
-        const count = data.claims.length;
+        const claims = data.subclaims || data.claims || [];
+        const count = claims.length;
+
+        // Milestone 3A: Confirmed Scope Card population
+        if (confirmedScopeCard) {
+            currentConfirmedScopeQuestion = data.interpreted_question || (claims[0] && claims[0].normalized_assertion) || data.submitted_text || "";
+            if (scopeQuestionInput) {
+                scopeQuestionInput.value = currentConfirmedScopeQuestion;
+            }
+            if (scopePurposeBadge) {
+                if (data.purpose === "check_claim") {
+                    scopePurposeBadge.textContent = "Check a claim";
+                } else if (data.purpose === "understand_context") {
+                    scopePurposeBadge.textContent = "Understand context";
+                } else if (data.purpose === "trace_origin") {
+                    scopePurposeBadge.textContent = "Trace origin";
+                } else {
+                    scopePurposeBadge.textContent = "Checkable claim";
+                }
+            }
+
+            if (unresolvedScopeContainer && unresolvedList) {
+                unresolvedList.innerHTML = "";
+                const uncertainties = data.material_uncertainties || [];
+                if (uncertainties.length > 0) {
+                    uncertainties.forEach(u => {
+                        const li = document.createElement("li");
+                        li.className = "unresolved-item";
+                        li.textContent = u;
+                        unresolvedList.appendChild(li);
+                    });
+                    unresolvedScopeContainer.classList.remove("hidden");
+                } else {
+                    unresolvedScopeContainer.classList.add("hidden");
+                }
+            }
+
+            if (limitationNoteBanner && limitationNoteText) {
+                if (data.limitation_note) {
+                    limitationNoteText.textContent = data.limitation_note;
+                    limitationNoteBanner.classList.remove("hidden");
+                } else {
+                    limitationNoteBanner.classList.add("hidden");
+                }
+            }
+
+            confirmedScopeCard.classList.remove("hidden");
+        }
+
+        // Status line
         resultsStatus.textContent =
             count === 0
-                ? "No claims found"
-                : `${count} claim${count !== 1 ? "s" : ""} · ${new Date(data.extracted_at).toLocaleTimeString()}`;
+                ? "No checkable claims found"
+                : `${count} checkable claim${count !== 1 ? "s" : ""} · Scope confirmed`;
 
-        // Render claim cards.
+        // Render claim cards
         claimsList.innerHTML = "";
 
         if (count === 0) {
             const empty = document.createElement("p");
             empty.className = "evidence-notice";
-            empty.textContent = "No extractable claims were found in the submitted text.";
+            empty.textContent = "No extractable checkable claims were found in the submitted inquiry.";
             claimsList.appendChild(empty);
             resultsSection.classList.remove("hidden");
             return;
         }
 
-        data.claims.forEach((claim, idx) => {
+        claims.forEach((claim, idx) => {
             const card = document.createElement("article");
             card.className = "claim-card";
             card.id = `claim-card-${claim.id}`;
@@ -179,8 +406,14 @@
             numSpan.textContent = `#${idx + 1}`;
 
             const typeSpan = document.createElement("span");
-            typeSpan.className = `claim-type-tag ${claim.claim_type}`;
-            typeSpan.textContent = claim.claim_type;
+            const isFactual = claim.claim_type === "factual";
+            typeSpan.className = `claim-type-tag ${isFactual ? "factual checkable-claim" : claim.claim_type}`;
+            if (isFactual) {
+                typeSpan.textContent = "Checkable claim";
+                typeSpan.title = "Checkable claim: A statement asserting a verifiable fact. This is a classification, not a verified finding.";
+            } else {
+                typeSpan.textContent = claim.claim_type;
+            }
 
             topRow.appendChild(numSpan);
             topRow.appendChild(typeSpan);
@@ -288,7 +521,7 @@
         const payload = {
             submission_id: currentSubmissionId || "adhoc_submission",
             claim_id: claim.id,
-            claim_text: claim.normalized_assertion || claim.original_wording,
+            claim_text: currentConfirmedScopeQuestion || claim.normalized_assertion || claim.original_wording,
             claim_type: claim.claim_type,
             explicit_location: claim.explicit_location,
             explicit_date: claim.explicit_date,
@@ -664,7 +897,7 @@
         container.appendChild(panel);
     }
 
-    // --- Submission logic with request-ordering protection ---
+    // --- Submission logic with request-ordering protection (Milestone 3A) ---
     async function executeSubmission() {
         hideError();
 
@@ -677,18 +910,25 @@
         const seq = ++currentSubmissionSeq;
         activeResearchSeq++;
         activeResearchClaimId = null;
+        clarificationExchanges = [];
         setLoading(true);
 
         // Clear previous results while new request is in flight to guarantee clean state ownership
         resultsSection.classList.add("hidden");
+        if (clarificationSection) {
+            clarificationSection.classList.add("hidden");
+        }
 
         const body = {
             text: inputText.value,
             source_url: sourceUrl.value.trim() || null,
+            round_index: 1,
+            exchanges: [],
+            explicit_broad: false,
         };
 
         try {
-            const res = await fetch("/api/extract", {
+            const res = await fetch("/api/clarify", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),
@@ -719,7 +959,11 @@
                 return;
             }
 
-            renderResults(data, seq);
+            if (data.clarification_needed) {
+                renderClarification(data, seq);
+            } else {
+                renderResults(data, seq);
+            }
         } catch (err) {
             if (seq !== currentSubmissionSeq) return;
             showError("Network error", "Could not reach the server. Is it running?");
@@ -743,19 +987,68 @@
         });
     }
 
+    // --- Milestone 3A Clarification & Scope Listeners ---
+    if (clarificationSubmitBtn) {
+        clarificationSubmitBtn.addEventListener("click", () => {
+            const ft = clarificationFreetext ? clarificationFreetext.value.trim() : "";
+            if (!ft) return;
+            executeClarificationChoice(null, ft, false);
+        });
+    }
+
+    if (clarificationFreetext) {
+        clarificationFreetext.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                const ft = clarificationFreetext.value.trim();
+                if (!ft) return;
+                executeClarificationChoice(null, ft, false);
+            }
+        });
+    }
+
+    if (btnBroadInquiry) {
+        btnBroadInquiry.addEventListener("click", () => {
+            executeClarificationChoice(null, null, true);
+        });
+    }
+
+    if (scopeQuestionInput) {
+        scopeQuestionInput.addEventListener("input", () => {
+            currentConfirmedScopeQuestion = scopeQuestionInput.value.trim();
+        });
+    }
+
+    if (scopeUpdateBtn) {
+        scopeUpdateBtn.addEventListener("click", () => {
+            if (scopeQuestionInput) {
+                currentConfirmedScopeQuestion = scopeQuestionInput.value.trim();
+            }
+            scopeUpdateBtn.textContent = "Saved";
+            setTimeout(() => {
+                scopeUpdateBtn.textContent = "Update";
+            }, 1200);
+        });
+    }
+
     // Expose for testing if running in test environment
     if (typeof window !== "undefined") {
         window.__ScoopScope = {
             get currentSeq() { return currentSubmissionSeq; },
             get activeResearchSeq() { return activeResearchSeq; },
             get activeResearchClaimId() { return activeResearchClaimId; },
+            get clarificationExchanges() { return clarificationExchanges; },
+            get currentConfirmedScopeQuestion() { return currentConfirmedScopeQuestion; },
             executeSubmission,
             renderResults,
+            renderClarification,
+            executeClarificationChoice,
             executeResearch,
             renderResearchResults,
             showError,
             hideError,
             setLoading,
+            setClarificationLoading,
             handleInputEdit,
             markSnapshotOutdated,
         };

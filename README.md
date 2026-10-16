@@ -1,10 +1,11 @@
 # ScoopScope
 
-A claim extraction and investigation tool. Paste a statement, get structured
-claims back — with original wording, classification, and extracted metadata.
+A claim clarification, extraction, and evidence retrieval tool. Paste a statement or inquiry, clarify the investigation scope through bounded options, confirm the checkable inquiry question, and retrieve real external evidence with verbatim passages.
 
-> **Current capability:** Claim extraction only. Evidence research is not yet
-> implemented.
+> **Current capability (Milestone 3A Complete):**
+> 1. **Inquiry Intake & Clarification**: Identifies user purpose (`check_claim`, `understand_context`, `trace_origin`), bounds clarification to at most two rounds with 3 coherent choices + free text, splits compound claims without inventing particulars, and presents an editable confirmed scope question with material unresolved assumptions.
+> 2. **Bounded Search & Safe Retrieval (Milestone 2C)**: Gathers external search snippets via Serper (max 2 outbound requests, 5 hits), safely fetches up to 3 candidate pages using SSRF-pinned sockets, and extracts inspectable verbatim passages with character offsets.
+> 3. **Auditing & Zero Automated Verdicts**: Candidate passages and search snippets are surfaced strictly for human inspection. No automated truth scores or simulated verdicts are computed.
 
 ---
 
@@ -12,7 +13,7 @@ claims back — with original wording, classification, and extracted metadata.
 
 - **Python 3.11+** (required for asyncio.timeout; tested with 3.14)
 - **Gemini API key** from [Google AI Studio](https://aistudio.google.dev/apikey)
-  (free tier available — see notes below)
+- **Serper API key** from [Serper.dev](https://serper.dev) for live search
 
 ## Setup (Windows)
 
@@ -30,26 +31,17 @@ pip install -e .
 
 # Create your local .env from the template
 copy .env.example .env
-# Then edit .env and add your GEMINI_API_KEY
+# Then edit .env and add your GEMINI_API_KEY and SERPER_API_KEY
 ```
 
 ### Credential Setup
 
-1. Go to <https://aistudio.google.dev/apikey>
-2. Create an API key (sign in with a Google account)
-3. Edit `backend/.env` and set:
+1. Edit `backend/.env` and set:
+   ```env
+   GEMINI_API_KEY=your-gemini-api-key
+   SERPER_API_KEY=your-serper-api-key
    ```
-   GEMINI_API_KEY=your-actual-key-here
-   ```
-4. **Never commit `.env`** — it is git-ignored.
-
-### Gemini Free Tier Notes
-
-- The free tier allows **$0 usage** of Flash-tier models (e.g. `gemini-flash-lite-latest`, `gemini-3.8-flash`).
-- Rate limits depend on the model and account tier (typically 5–15 RPM for free-tier Flash models, with daily request caps) — check your Google AI Studio dashboard for current limits.
-- Free-tier data **may be used by Google** to improve models.
-- This is distinct from Gemini access in coding assistants — you need an
-  application API key from AI Studio, not a coding-tool subscription.
+2. **Never commit `.env`** — it is git-ignored.
 
 ## Running
 
@@ -69,72 +61,64 @@ cd c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope\backend
 python -m pytest tests/ -v
 ```
 
-All tests run without credentials (they use explicit mocks/fixtures).
-
-## Project Structure
-
-```
-ScoopScope/
-├── AGENTS.md              # Project rules and evidence policy
-├── GEMINI.md              # Pointer to AGENTS.md
-├── STATUS.md              # Current state and next task
-├── README.md              # This file
-├── .gitignore
-├── backend/
-│   ├── pyproject.toml     # Dependencies and build config
-│   ├── .env.example       # Credential template
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── config.py      # Settings from .env
-│   │   ├── models.py      # Pydantic request/response/LLM schemas
-│   │   ├── gemini_adapter.py  # Gemini API client with retries
-│   │   └── main.py        # FastAPI application
-│   └── tests/
-│       ├── __init__.py
-│       ├── fixtures.py    # Test-only data (never used in production)
-│       └── test_extraction.py
-└── frontend/
-    ├── index.html
-    ├── style.css
-    └── app.js
-```
+All 132 tests run completely offline without external credentials using explicit mocks and fixtures.
 
 ## API Endpoints
 
-| Method | Path           | Description                        |
-|--------|----------------|------------------------------------|
-| GET    | `/api/health`  | Health check, credential status    |
-| POST   | `/api/extract` | Extract claims from submitted text |
+| Method | Path            | Description                                                        |
+|--------|-----------------|--------------------------------------------------------------------|
+| GET    | `/api/health`   | Health check and credential configuration status                   |
+| POST   | `/api/clarify`  | Clarify inquiry intent, scope, and confirm checkable claims (3A)   |
+| POST   | `/api/extract`  | Extract structured claims from submitted text (legacy baseline)    |
+| POST   | `/api/research` | Gather search snippets and safely retrieved source passages (2C)   |
 
-### POST /api/extract
+### POST /api/clarify
 
 **Request:**
 ```json
 {
-  "text": "Los Angeles has about 4 million people.",
-  "source_url": "https://example.com"
+  "text": "Europe bans American beef because of dangerous chemicals.",
+  "source_url": null,
+  "round_index": 1,
+  "exchanges": []
 }
 ```
 
-**Response (200):**
+**Response (200 - clarification needed):**
 ```json
 {
-  "submission_id": "abc123...",
-  "submitted_text": "Los Angeles has about 4 million people.",
-  "source_url": "https://example.com",
-  "claims": [
+  "submission_id": "9a8b7c...",
+  "submitted_text": "Europe bans American beef because of dangerous chemicals.",
+  "purpose": "check_claim",
+  "is_clear": false,
+  "clarification_needed": true,
+  "round_index": 1,
+  "max_rounds_reached": false,
+  "question": "Which specific substance or regulatory restriction would you like to investigate?",
+  "choices": [
+    "Bovine growth hormones (1989 EU hormone ban)",
+    "Chlorine and antimicrobial carcass washes",
+    "General chemical food additives and veterinary drugs"
+  ],
+  "interpreted_question": "Did European countries ban American beef over specific chemical substances?",
+  "material_uncertainties": [
+    "Specific substance in beef was not stated by the author (chemicals unspecified)",
+    "Jurisdiction Europe as a whole vs European Union statutory framework unconfirmed"
+  ],
+  "subclaims": [
     {
-      "id": "a1b2c3d4e5f6",
-      "original_wording": "Los Angeles has about 4 million people",
-      "normalized_assertion": "The population of Los Angeles is approximately 4 million.",
-      "claim_type": "factual",
-      "explicit_date": null,
-      "explicit_location": "Los Angeles",
-      "explicit_quantity": "about 4 million people",
-      "qualifications": "approximate (\"about\")"
+      "id": "e4f5a6...",
+      "original_wording": "Europe bans American beef",
+      "normalized_assertion": "European countries prohibit imports of American beef.",
+      "claim_type": "factual"
+    },
+    {
+      "id": "b1c2d3...",
+      "original_wording": "because of dangerous chemicals",
+      "normalized_assertion": "The beef import restriction is caused by the presence of dangerous chemical substances.",
+      "claim_type": "causal"
     }
   ],
-  "extracted_at": "2026-10-13T08:00:00Z",
-  "status_message": "Claims extracted. Evidence research not yet performed."
+  "status_message": "Clarification requested (round 1 of 2) · 3 options available"
 }
 ```

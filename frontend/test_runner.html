@@ -40,7 +40,7 @@
                     <input id="source-url" class="form-input" type="url" />
                 </div>
                 <button id="submit-btn" type="submit" class="btn-primary">
-                    <span class="btn-label">Extract Claims</span>
+                    <span class="btn-label">Clarify & Investigate</span>
                     <span class="btn-spinner" aria-hidden="true"></span>
                 </button>
             </form>
@@ -58,10 +58,62 @@
                 <button id="error-dismiss" class="error-dismiss" aria-label="Dismiss">&times;</button>
             </div>
 
+            <!-- Clarification Section (Milestone 3A) -->
+            <section id="clarification-section" class="clarification-card hidden" aria-live="polite">
+                <div class="clarification-header">
+                    <div class="clarification-title-row">
+                        <span id="clarification-round-badge" class="badge-round">Round 1 of 2</span>
+                        <span class="clarification-tag">Scope Clarification</span>
+                    </div>
+                    <h2 id="clarification-question" class="clarification-question"></h2>
+                    <p class="clarification-subtitle">Select an option below or specify your focus:</p>
+                </div>
+                <div id="clarification-choices-group" class="clarification-choices-group"></div>
+                <div class="clarification-freetext-group">
+                    <label for="clarification-freetext" class="form-label">Or clarify in your own words:</label>
+                    <div class="freetext-row">
+                        <input id="clarification-freetext" class="form-input" type="text" />
+                        <button id="clarification-submit-btn" type="button" class="btn-secondary">
+                            <span class="btn-label">Continue</span>
+                            <span class="btn-spinner" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                </div>
+                <div id="clarification-broad-container" class="clarification-broad-container hidden">
+                    <button id="btn-broad-inquiry" type="button" class="btn-link">Investigate broad inquiry &rarr;</button>
+                </div>
+            </section>
+
             <!-- Results Section -->
             <section id="results-section" class="results-section hidden" aria-live="polite">
+                <!-- Confirmed Inquiry Scope (Milestone 3A) -->
+                <div id="confirmed-scope-card" class="confirmed-scope-card">
+                    <div class="scope-header-row">
+                        <span class="scope-badge">Confirmed Inquiry Scope</span>
+                        <span id="scope-purpose-badge" class="scope-purpose-badge">Check a claim</span>
+                    </div>
+                    <div class="scope-statement-box">
+                        <label for="scope-question-input" class="scope-label">We will investigate:</label>
+                        <div class="scope-input-wrapper">
+                            <input id="scope-question-input" type="text" class="scope-question-input" />
+                            <button id="scope-update-btn" type="button" class="btn-sm-secondary">Update</button>
+                        </div>
+                    </div>
+                    <div id="unresolved-scope-container" class="unresolved-scope-container hidden">
+                        <div class="unresolved-title">Material Unresolved Assumptions / Scope Notes:</div>
+                        <ul id="unresolved-list" class="unresolved-list"></ul>
+                    </div>
+                    <div id="limitation-note-banner" class="notice-banner limitation-banner hidden">
+                        <span class="limitation-icon">ℹ</span>
+                        <div class="limitation-content">
+                            <strong>Investigation note:</strong>
+                            <span id="limitation-note-text"></span>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="results-header">
-                    <h2 class="results-title">Extracted Claims</h2>
+                    <h2 class="results-title">Checkable Claims</h2>
                     <span id="results-status" class="results-status"></span>
                 </div>
                 <div class="submitted-context">
@@ -121,11 +173,11 @@
         let mockQueue = [];
         let researchMockQueue = [];
         window.fetch = async function (url, opts) {
-            if (url === "/api/extract") {
+            if (url === "/api/extract" || url === "/api/clarify") {
                 const body = JSON.parse(opts.body);
                 const handler = mockQueue.shift();
                 if (!handler) {
-                    throw new Error("Unexpected fetch call without mock handler: " + body.text);
+                    throw new Error("Unexpected fetch call without mock handler: " + (body.text || url));
                 }
                 return handler(body);
             }
@@ -151,9 +203,40 @@
                     submission_id: "mock-" + Math.random().toString(36).substring(2, 9),
                     submitted_text: submittedText,
                     source_url: null,
+                    purpose: "check_claim",
+                    is_clear: true,
+                    clarification_needed: false,
+                    round_index: 1,
+                    max_rounds_reached: false,
+                    interpreted_question: (claims && claims[0] ? claims[0].normalized_assertion : submittedText),
+                    material_uncertainties: [],
+                    subclaims: claims,
                     claims: claims,
                     extracted_at: new Date().toISOString(),
-                    status_message: "Claims extracted. Evidence research not yet performed."
+                    status_message: "Inquiry scope confirmed · Ready to select a checkable claim for research"
+                })
+            };
+        }
+
+        function createClarificationResponse(submittedText, question, choices, roundIndex = 1) {
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    submission_id: "mock-" + Math.random().toString(36).substring(2, 9),
+                    submitted_text: submittedText,
+                    source_url: null,
+                    purpose: "check_claim",
+                    is_clear: false,
+                    clarification_needed: true,
+                    round_index: roundIndex,
+                    max_rounds_reached: false,
+                    question: question,
+                    choices: choices,
+                    interpreted_question: "Interpreted: " + submittedText,
+                    material_uncertainties: ["Material scope uncertainty: timeframe unconfirmed"],
+                    subclaims: [],
+                    status_message: `Clarification requested (round ${roundIndex} of 2) · 3 options available`
                 })
             };
         }
@@ -940,6 +1023,111 @@
             assert(btn9C.textContent === "Find sources", "Button C text restored");
             assert(container9C.querySelector(".research-loading-state") === null, "Loading state removed from card C");
             assert(!container9C.textContent.includes("Stale Hit 9C"), "Late response C was discarded");
+
+            // -------------------------------------------------------------
+            // TEST 10: Milestone 3A Clarification and Confirmed Scope Flow
+            // -------------------------------------------------------------
+            log("\n--- TEST 10: Milestone 3A Clarification, Options, Scope Confirmation, and Invalidation ---");
+
+            const clarSection = document.getElementById("clarification-section");
+            const clarQuestion = document.getElementById("clarification-question");
+            const clarChoicesGroup = document.getElementById("clarification-choices-group");
+            const clarBadge = document.getElementById("clarification-round-badge");
+            const confirmedScopeCard = document.getElementById("confirmed-scope-card");
+            const scopeInput = document.getElementById("scope-question-input");
+            const unresolvedList = document.getElementById("unresolved-list");
+
+            // 1. Submit statement requiring clarification
+            mockQueue.push(async (b) => {
+                return createClarificationResponse(
+                    b.text,
+                    "Which aspect of European beef regulations are you investigating?",
+                    [
+                        "Import restrictions on hormone-treated beef",
+                        "Overall agricultural import tariffs",
+                        "Current European Court trade dispute status"
+                    ],
+                    1
+                );
+            });
+
+            inputText.value = "Europe bans American beef";
+            window.__ScoopScope.executeSubmission();
+            await delay(50);
+
+            assert(!clarSection.classList.contains("hidden"), "Clarification section visible for unclear statement");
+            assert(resultsSection.classList.contains("hidden"), "Results section hidden while clarification pending");
+            assert(clarBadge.textContent.includes("Round 1 of 2"), "Round 1 badge displayed");
+            assert(clarQuestion.textContent.includes("Which aspect"), "Clarifying question rendered");
+            assert(clarChoicesGroup.children.length === 3, "Exactly 3 distinct option buttons rendered");
+            assert(clarChoicesGroup.children[0].textContent.includes("Import restrictions"), "Choice 1 text matches");
+
+            // 2. Select option 1 -> Advances to round 2 confirmation
+            mockQueue.push(async (b) => {
+                assert(b.round_index === 2, "Second request increments round_index to 2");
+                assert(b.exchanges.length === 1, "Prior choice recorded in exchanges");
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        submission_id: "mock-sub-beef-3a",
+                        submitted_text: b.text,
+                        source_url: null,
+                        purpose: "check_claim",
+                        is_clear: true,
+                        clarification_needed: false,
+                        round_index: 2,
+                        max_rounds_reached: true,
+                        interpreted_question: "Did European jurisdictions ban imports of hormone-treated American beef?",
+                        material_uncertainties: [
+                            "Specific substance in beef was not named in user input",
+                            "Jurisdiction Europe vs European Union unconfirmed"
+                        ],
+                        subclaims: [
+                            {
+                                id: "claim-beef-1",
+                                original_wording: "Europe bans American beef",
+                                normalized_assertion: "European jurisdictions ban imports of hormone-treated American beef.",
+                                claim_type: "factual",
+                                explicit_date: null,
+                                explicit_location: "Europe",
+                                explicit_quantity: null,
+                                qualifications: null
+                            }
+                        ],
+                        status_message: "Inquiry scope confirmed · Ready to select a checkable claim for research"
+                    })
+                };
+            });
+
+            const btnChoice1 = clarChoicesGroup.children[0];
+            btnChoice1.click();
+            await delay(50);
+
+            assert(clarSection.classList.contains("hidden"), "Clarification section hidden after scope confirmation");
+            assert(!resultsSection.classList.contains("hidden"), "Results section displayed after scope confirmed");
+            assert(!confirmedScopeCard.classList.contains("hidden"), "Confirmed scope card visible");
+            assert(scopeInput.value.includes("hormone-treated American beef"), "Scope input populated with interpreted question");
+            assert(unresolvedList.children.length === 2, "Two material unresolved scope notes displayed");
+            assert(unresolvedList.textContent.includes("not named in user input"), "Unstated substance uncertainty note rendered");
+            
+            // Check that factual claim tag is displayed as 'Checkable claim'
+            const claimTag = claimsList.querySelector(".claim-type-tag");
+            assert(claimTag !== null, "Claim card rendered");
+            assert(claimTag.textContent === "Checkable claim", "Factual claim labeled 'Checkable claim' for honesty");
+
+            // 3. Edit scope question
+            scopeInput.value = "Did the European Union ban hormone beef in 1989?";
+            scopeInput.dispatchEvent(new Event("input"));
+            assert(window.__ScoopScope.currentConfirmedScopeQuestion.includes("1989"), "Confirmed scope question updated on input edit");
+
+            // 4. Modifying input text invalidates confirmed scope snapshot
+            inputText.value = "Europe bans hormone beef completely";
+            inputText.dispatchEvent(new Event("input"));
+            assert(document.getElementById("claims-outdated-banner") !== null, "Outdated draft banner shown on input edit");
+            const rBtn = claimsList.querySelector(".btn-research");
+            assert(rBtn.disabled === true, "Research button disabled after draft edit");
+            assert(clarSection.classList.contains("hidden"), "Clarification section remains hidden on draft edit");
 
             log("\n=================================================");
             log(`ALL TESTS PASSED: ${passedCount} assertions passed, 0 failures.`);

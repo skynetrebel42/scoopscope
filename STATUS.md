@@ -1,15 +1,60 @@
 # ScoopScope — Project Status
 
-Last updated: 2026-10-14
+Last updated: 2026-10-15
 
-## Current Status: Milestone 2C Complete
+## Current Status: Milestone 3A Complete
 
 ---
 
 ## Workspace & Repository Confirmation
 - **Canonical Workspace & Git Root**: `c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope\`
-- **Active Git Commit / HEAD**: `7e57aa9f3ff6bdcd4a7041b3f505cb81fc4771b4` (Milestone 2B Baseline Checkpoint: `713a134`)
-- **Resolved Path**: No references to stale paths. Clean environment.
+- **Milestone 3A Scope**: Clarify and Confirm the Inquiry
+- **Milestone 2C Baseline Commit**: `5666397` (Review package: `ScoopScope_2C_Review.zip`)
+- **Resolved Path**: Clean environment. Zero secrets committed or exposed.
+
+---
+
+## Milestone 3A — Clarify and Confirm the Inquiry (COMPLETE)
+
+### 1. Inquiry Intake & Clarification Endpoint (`backend/app/main.py`, `backend/app/models.py`)
+- **Endpoint**: `POST /api/clarify`
+- **Pydantic Schemas**:
+  - `InvestigationPurpose`: `check_claim`, `understand_context`, `trace_origin`.
+  - `ClarificationExchange`: Tracks round index, question, selected choice, and free text.
+  - `ClarificationRequest`: Accepts text, source_url, round_index (1 or 2), history exchanges, and explicit_broad flag. Max 10,000 characters.
+  - `ClarificationResponse`: Returns structured analysis, `is_clear`, `clarification_needed`, `round_index`, `max_rounds_reached`, `question`, `choices` (normalized to exactly 3 choices), `interpreted_question`, `material_uncertainties`, `subclaims` (with UUIDs), `limitation_note`, and `status_message`.
+- **Legacy Compatibility**: `POST /api/extract` remains fully functional for prior integrations.
+
+### 2. Gemini Clarification Adapter (`backend/app/gemini_adapter.py`)
+- **Structured Schema Enforced**: Uses `response_schema=ClarificationAnalysisLLM` with `CLARIFICATION_SYSTEM_INSTRUCTION`.
+- **Bounded Rounds Enforcement**:
+  - Unclear input at Round 1: prompts single highest-value question with exactly 3 coherent choices answering the same dimension + free text.
+  - Round 2: synthesizes user's choice or free text.
+  - **Third Round Impossible**: Hard ceiling at 2 rounds (`max_rounds_reached=True`, `clarification_needed=False`, `is_clear=True`). Any lingering ambiguity is documented in `material_uncertainties`.
+  - Clear input: immediately sets `is_clear=True`, `clarification_needed=False`, returning editable interpreted question and checkable subclaims without redundant questions.
+- **No Invented Particulars**:
+  - Leaves unstated details as unknown (e.g. unspecified chemicals in beef remain unknown; never guesses hormones without evidence).
+  - Preserves geographic designations (keeps "Europe" without silently assuming "EU" without a visible scope note).
+  - Compound assertions: decomposes into linked subclaims while preserving original wording and causal relationships.
+  - Temporal fidelity: current-status inquiries are never converted into historical investigations, or vice versa.
+
+### 3. Frontend Intake Flow & Confirmed Scope UI (`frontend/index.html`, `frontend/style.css`, `frontend/app.js`)
+- **Interactive Clarification Stage**:
+  - Renders clarification card for unclear inputs with round badge ("Round 1 of 2"), prominent question, exactly 3 distinct choice buttons, and a free-text input with "Continue" button.
+  - "Investigate broad inquiry across all aspects" option available to proceed directly.
+- **Confirmed Scope Card**:
+  - Prominently displays: `"We will investigate: [editable question]"`.
+  - Allows in-place editing of the inquiry question with "Update" action.
+  - Displays Material Unresolved Assumptions as an inspectable bullet list.
+  - Displays honest limitation banner when purpose is `understand_context` or `trace_origin`:
+    *"Dedicated context and origin tracing pipelines are planned for future milestones. You can investigate this as an editable factual research question below."*
+- **Honest Claim Classification**:
+  - Renamed displayed `factual` badge to **"Checkable claim"** with tooltip:
+    *"Checkable claim: A statement asserting a verifiable fact. This is a classification, not a verified finding."*
+- **Replaced Stale Copy**:
+  - Eliminated stale "claim extraction only" and "research not yet performed" notices in favor of live per-stage status indicators.
+- **Rigorous Sequence & Invalidation Protection**:
+  - Modifying draft statement or source URL immediately increments `currentSubmissionSeq`, invalidates active clarification, hides clarification cards, clears in-flight research (`activeResearchSeq++`), and marks existing rendered claims as outdated with disabled research buttons.
 
 ---
 
@@ -102,18 +147,19 @@ Last updated: 2026-10-14
 
 ---
 
-## Automated Test Suite (122 passing — all fixture-based or mocked)
+## Automated Test Suite (132 passing — all fixture-based or mocked)
 
 | Suite | Tests / Assertions | What it covers | Status |
 |---|---|---|---|
+| `test_clarification.py` | 10 tests | Milestone 3A intake clarification, 5 acceptance checks, DACA/beef/Obama samples, temporal distinction, 3 coherent choices, 2-round bound, direct confirmation for clear claims, context/origin limitation notes | PASSED |
+| `test_frontend_ordering.py` | 1 test (108 browser assertions) | Headless Chrome browser test: 10 test suites covering request ordering, stale discard, Try Again, research action, snippet rendering, passage rendering, draft edit invalidation, inert text XSS protection, claim switching A->B (F2), and Milestone 3A clarification, 3 option buttons, scope question editing, and invalidation | PASSED |
 | `test_extraction.py` | 14 tests | Claim extraction, validation, error handling, unique IDs | PASSED |
-| `test_frontend_ordering.py` | 1 test (88 browser assertions) | Headless Chrome browser test: request ordering, stale discard, Try Again, research action, snippet rendering, passage rendering, input/URL modification invalidation (R4), inert text XSS protection, switching claims A->B in both resolution orders (F2) | PASSED |
 | `test_search_contract.py` | 9 tests | `SearchProvider` Protocol, `SearchResultHit` snippet immutability, date/dependence defaults, query generation | PASSED |
 | `test_safe_fetcher.py` | 65 tests | IP ranges, IPv4-mapped IPv6, CGNAT, scheme/standard & bad port/credential validation (R3), public success, private/loopback rejection, public-to-private redirect block, DNS rebinding block, 3-hop redirect limit, MIME rejection, 1MB size limit, cancellable deadline and slow DNS enforcement with elapsed bounds (R2), socket connection enforcement | PASSED |
 | `test_serper_provider.py` | 12 tests | Serper contract adherence, missing key handling, search response parsing, 5-hit cap, 401/403/429 status mapping, bounded 5xx retries, outbound attempt accounting, secret redaction | PASSED |
 | `test_passage_extractor.py` | 9 tests | Script/style stripping, entity decoding (single decode R1), exact substring offsets, provenance verification, URL deduplication, void element handling (<embed> R1), table cell number separation (R1), plain-text MIME preservation (<exception> R1) | PASSED |
 | `test_research_endpoint.py` | 12 tests | Orchestrator flow with mock provider & fetcher (injected DNS R5), candidate page budget cap (3), partial fetch failures, 503 on missing credentials, cancellable orchestrator deadline enforcement (R2), malformed port error isolation (R3), search provider failure propagation on 401/403/429/500 (F1), partial evidence preservation on search failure with source URL (F1), legitimate 0-hit search distinguishability (F1), cooperative synchronous extraction deadline enforcement on large documents (F3) | PASSED |
-| **Total** | **122 passed** | Full regression and Milestone 2C capabilities | **ALL PASSED (30.27s)** |
+| **Total** | **132 passed** | Full regression and Milestone 3A capabilities | **ALL PASSED (31.24s)** |
 
 ---
 
