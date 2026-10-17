@@ -17,6 +17,7 @@ from app.retrieval.passage_extractor import (
     clean_text_content,
     deduplicate_urls,
     extract_candidate_passages,
+    is_substantive_passage,
     verify_passage_provenance,
 )
 
@@ -34,6 +35,7 @@ __all__ = [
     "deduplicate_urls",
     "extract_candidate_passages",
     "is_public_ip",
+    "is_substantive_passage",
     "validate_url_syntax",
     "verify_passage_provenance",
 ]

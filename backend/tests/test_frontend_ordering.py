@@ -64,7 +64,7 @@ async def test_frontend_request_ordering_in_browser():
     assert match is not None, f"Could not find #test-report in DOM output: {stdout[:500]}"
     report_text = match.group(1)
     print("\n--- FRONTEND TEST REPORT ---")
-    print(report_text)
+    print(report_text.encode("ascii", errors="replace").decode("ascii"))
     print("--- END FRONTEND TEST REPORT ---\n")
 
     # Check for overall success marker

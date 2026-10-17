@@ -25,6 +25,8 @@ from app.models import (
     ErrorResponse,
     ExtractionRequest,
     ExtractionResponse,
+    ReportRequest,
+    ReportResponse,
     ResearchRequest,
     ResearchResponse,
 )
@@ -56,7 +58,7 @@ app.add_middleware(
 
 # Adapters created once at startup.
 gemini = GeminiAdapter()
-research_orchestrator = ResearchOrchestrator()
+research_orchestrator = ResearchOrchestrator(gemini_adapter=gemini)
 
 # ---------------------------------------------------------------------------
 # API routes
@@ -286,6 +288,51 @@ async def research_claim(req: ResearchRequest):
                 detail="An unexpected error occurred during research. Please try again.",
                 submitted_text=req.claim_text,
                 source_url=req.source_url,
+            ).model_dump(),
+        )
+
+
+@app.post(
+    "/api/report",
+    response_model=ReportResponse,
+    responses={
+        400: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
+)
+async def generate_report_endpoint(req: ReportRequest):
+    """Synthesize custom page report & structured evidence bank from selected quotes."""
+    if not req.inquiry_title or not req.inquiry_title.strip():
+        return JSONResponse(
+            status_code=400,
+            content=ErrorResponse(
+                error="Empty inquiry title",
+                detail="Inquiry title is required to generate a report.",
+                submitted_text=req.inquiry_title,
+            ).model_dump(),
+        )
+
+    if not req.selected_passages:
+        return JSONResponse(
+            status_code=400,
+            content=ErrorResponse(
+                error="No passages selected",
+                detail="At least one quote must be selected to generate a report.",
+                submitted_text=req.inquiry_title,
+            ).model_dump(),
+        )
+
+    try:
+        result = await gemini.generate_custom_report(req)
+        return result
+    except Exception as exc:
+        logger.exception("Unexpected error generating report")
+        return JSONResponse(
+            status_code=500,
+            content=ErrorResponse(
+                error="Report generation error",
+                detail=str(exc) or "An unexpected error occurred while generating the report.",
+                submitted_text=req.inquiry_title,
             ).model_dump(),
         )
 

@@ -108,9 +108,12 @@ class EvidencePassage(BaseModel):
     exact_passage: str = Field(min_length=1)
     context_surrounding: str | None = None
     publication_date: str | None = Field(default=None, description="ISO 8601 or None if unknown")
+    updated_date: str | None = Field(default=None, description="ISO 8601 or None if unknown")
+    date_provenance: str | None = Field(default=None, description="Source of extracted date, e.g. json-ld, meta, byline, time-tag")
     event_date: str | None = Field(default=None, description="ISO 8601 or None if unknown")
     source_dependence: SourceDependence = Field(default=SourceDependence.UNKNOWN)
     retrieved_at: str = Field(description="ISO 8601 UTC timestamp")
     start_offset: int | None = Field(default=None, ge=0, description="Start character offset in extracted_text")
     end_offset: int | None = Field(default=None, ge=0, description="End character offset in extracted_text")
     relevance_note: str | None = Field(default=None, description="Relevance diagnostic note (e.g. keyword match)")
+    relevance_explanation: str | None = Field(default=None, description="Concise 1-sentence explanation of how this quote relates to the inquiry")

@@ -14,7 +14,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import urllib.parse
 import uuid
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from google import genai
@@ -27,10 +29,16 @@ from app.models import (
     ClarificationAnalysisLLM,
     ClarificationExchange,
     ClarificationResponse,
+    EvidenceSynthesisLLM,
     ExtractedClaim,
     ExtractedClaimLLM,
     InvestigationPurpose,
+    PassageRelevanceLLM,
+    ReportRequest,
+    ReportResponse,
+    ReportVibe,
 )
+from app.search.models import EvidencePassage
 
 if TYPE_CHECKING:
     pass
@@ -80,6 +88,31 @@ Core Objectives:
 3. Split Compound Claims:
    - Break compound claims into linked checkable subclaims while preserving original wording and causal linkages.
    - Each subclaim must classify claim_type (factual, opinion, prediction, causal).
+
+4. Plain-Language & Clarification Context Integration:
+   - Phrase clarification_choices, interpreted_question, and subclaims in plain, everyday journalistic and regulatory language (e.g., "food safety recalls, banned antibiotics, or contamination reports") rather than academic textbook jargon (like "veterinary drug residues") that skews search toward medical journals.
+   - When prior clarification exchanges exist, ensure every extracted subclaim's normalized_assertion actively incorporates the user's selected clarification context.
+"""
+
+SYNTHESIS_SYSTEM_INSTRUCTION = """\
+You are an objective evidence synthesis analyst for ScoopScope.
+Your task is to analyze how safely retrieved verbatim source quotes address a user's inquiry or claim.
+
+Rules and Guardrails:
+1. STRICT GROUNDING: You MUST base your analysis strictly on the provided verbatim quotes.
+   Never invent facts, external assertions, quotes, or citations.
+2. NO TRUTH SCORES OR BARE VERDICTS: Do NOT assign numeric truth percentages or one-word verdicts (like "True" or "False").
+3. INQUIRY SYNTHESIS:
+   - Provide a concise, neutral 2-4 sentence synthesis explaining how the retrieved passages address the user's inquiry:
+     what they support or clarify, what nuances they provide, and what critical aspects remain unverified or unknown.
+   - If no relevant quotes were retrieved or quotes do not address the claim, state clearly that no verifying passages were found.
+4. RELEVANCE EXPLANATIONS:
+   - For each provided passage, write exactly one concise sentence explaining how that specific quote relates to the inquiry.
+5. SUGGESTED NEXT QUERIES:
+   - Provide 2 to 3 concrete, actionable follow-up questions or sharper search phrases (e.g. referencing official regulatory agencies, primary records, or specific unresolved scopes) to help the user explore further.
+   - Output clean, direct search queries using key entities/locations and angles (e.g. "European Commission Food Safety audit Argentine beef 2024").
+   - NEVER wrap queries in meta-instructions like "Check primary regulatory filings regarding..." or "Search official archives for updates on...".
+   - NEVER include search operators like "site:" or "filetype:".
 """
 
 
@@ -464,3 +497,323 @@ class GeminiAdapter:
             limitation_note=limitation_note,
             status_message=status_message,
         )
+
+    async def synthesize_evidence(
+        self,
+        claim_text: str,
+        passages: list[EvidencePassage],
+        timeout_seconds: float = 30.0,
+    ) -> EvidenceSynthesisLLM | None:
+        """Generate grounded synthesis and per-quote relevance explanations using Gemini.
+
+        Strict Guardrails:
+        - Grounded 100% in provided verbatim passages.
+        - Zero invented facts, quotes, or citations.
+        - No numeric truth scores or bare True/False verdicts.
+        - Bounded single call; returns None on failure or timeout so callers can fall back gracefully.
+        """
+        if self._client is None or not passages:
+            return None
+
+        config = genai_types.GenerateContentConfig(
+            system_instruction=SYNTHESIS_SYSTEM_INSTRUCTION,
+            response_mime_type="application/json",
+            response_schema=EvidenceSynthesisLLM,
+            temperature=0.1,
+        )
+
+        passage_blocks: list[str] = []
+        for p in passages:
+            passage_blocks.append(
+                f"Passage ID: {p.passage_id}\n"
+                f"Source URL: {p.source_url}\n"
+                f"Publication Date: {p.publication_date or 'Unknown'}\n"
+                f"Exact Verbatim Quote: \"{p.exact_passage}\"\n"
+            )
+
+        prompt = (
+            f"Inquiry / Claim to evaluate:\n\"{claim_text}\"\n\n"
+            f"Retrieved Verbatim Source Passages ({len(passages)} total):\n"
+            + "\n---\n".join(passage_blocks)
+            + "\n\nSynthesize how these verbatim quotes address the inquiry. Never invent quotes or verdicts."
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                self._client.aio.models.generate_content(
+                    model=settings.gemini_model,
+                    contents=prompt,
+                    config=config,
+                ),
+                timeout=max(0.001, timeout_seconds),
+            )
+            if not response or not response.text:
+                return None
+            data = json.loads(response.text)
+            return EvidenceSynthesisLLM.model_validate(data)
+        except Exception as exc:
+            logger.warning("Evidence synthesis call failed or timed out: %s", exc)
+            return None
+
+    async def generate_custom_report(
+        self,
+        req: ReportRequest,
+        timeout_seconds: float = 30.0,
+    ) -> ReportResponse:
+        """Synthesize a custom report and evidence bank from user-selected quotes.
+
+        Guarantees:
+        - Strict grounding in user-selected quotes and source metadata without hallucination.
+        - Robust fallback to deterministic offline report builder on LLM failure or timeout.
+        """
+        if self._client is None or not req.selected_passages:
+            return build_deterministic_custom_report(req)
+
+        # Build prompt for Gemini
+        vibe = req.report_vibe or "objective_brief"
+        passage_entries = []
+        for idx, p in enumerate(req.selected_passages, start=1):
+            domain = _extract_domain(p.source_url)
+            passage_entries.append(
+                f"[{idx}] Source: {domain} ({p.source_url})\n"
+                f"    Date: {p.publication_date or 'Unknown'}\n"
+                f"    Verbatim Quote: \"{p.exact_passage}\"\n"
+                f"    Fit Note: {p.relevance_explanation or 'Contextual quote'}"
+            )
+
+        sections_requested = []
+        if req.include_summary:
+            sections_requested.append("Topic & Inquiry Synthesis")
+        if req.include_evidence_bank:
+            sections_requested.append("Structured Evidence Bank (Numbered [1], [2], verbatim quotes, fit, and links)")
+        if req.include_open_questions:
+            sections_requested.append("Unresolved Assumptions & Next Questions")
+        if req.include_works_cited:
+            sections_requested.append("Works Cited / Bibliography")
+
+        prompt = (
+            f"Inquiry Title: \"{req.inquiry_title}\"\n"
+            f"Requested Vibe: {vibe}\n"
+            f"Custom Focus: {req.custom_focus or 'None'}\n"
+            f"Required Sections: {', '.join(sections_requested)}\n\n"
+            f"Selected Verbatim Passages ({len(req.selected_passages)} total):\n"
+            + "\n\n".join(passage_entries)
+            + "\n\nSynthesize an authoritative, beautifully structured Markdown report following the specified vibe and sections. Never invent quotes or facts outside these passages."
+        )
+
+        sys_inst = (
+            f"You are an expert research analyst and objective synthesist. "
+            f"Generate an elegant Markdown report based strictly on the provided verbatim quotes. "
+            f"Report Vibe: {vibe}. "
+            f"Strict Rules: Never invent facts, statistics, or quotes not provided. "
+            f"Preserve verbatim quotes exactly when citing evidence. Do not issue single-label true/false verdicts."
+        )
+
+        config = genai_types.GenerateContentConfig(
+            system_instruction=sys_inst,
+            temperature=0.2,
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                self._client.aio.models.generate_content(
+                    model=settings.gemini_model,
+                    contents=prompt,
+                    config=config,
+                ),
+                timeout=max(0.001, timeout_seconds),
+            )
+            if response and response.text and len(response.text.strip()) > 100:
+                clean_md = response.text.strip()
+                # Remove markdown fences if model enclosed entire response in ```markdown ... ```
+                if clean_md.startswith("```markdown"):
+                    clean_md = clean_md[11:]
+                elif clean_md.startswith("```"):
+                    clean_md = clean_md[3:]
+                if clean_md.endswith("```"):
+                    clean_md = clean_md[:-3]
+                clean_md = clean_md.strip()
+
+                title_map = {
+                    "objective_brief": f"Executive Briefing: {req.inquiry_title}",
+                    "cornell_study": f"Cornell Study Guide: {req.inquiry_title}",
+                    "fact_check": f"Fact-Check Breakdown: {req.inquiry_title}",
+                    "deep_dive": f"Topic Deep-Dive: {req.inquiry_title}",
+                }
+                report_title = title_map.get(vibe, f"Research Report: {req.inquiry_title}")
+
+                unique_sources = {p.source_url for p in req.selected_passages} | {s.url for s in req.sources}
+                return ReportResponse(
+                    report_title=report_title,
+                    vibe_used=vibe,
+                    markdown_content=clean_md,
+                    selected_quote_count=len(req.selected_passages),
+                    source_count=len(unique_sources),
+                    is_fallback=False,
+                )
+        except Exception as exc:
+            logger.warning("LLM report generation failed or timed out; falling back to deterministic builder: %s", exc)
+
+        return build_deterministic_custom_report(req)
+
+
+def _extract_domain(url: str) -> str:
+    try:
+        parsed = urllib.parse.urlparse(url)
+        return parsed.hostname.replace("www.", "") if parsed.hostname else url
+    except Exception:
+        return url
+
+
+def build_deterministic_custom_report(req: ReportRequest) -> ReportResponse:
+    """Deterministic offline/fallback custom report and evidence bank generator."""
+    vibe = req.report_vibe or "objective_brief"
+    title_map = {
+        "objective_brief": f"Executive Briefing: {req.inquiry_title}",
+        "cornell_study": f"Cornell Study Guide: {req.inquiry_title}",
+        "fact_check": f"Fact-Check Breakdown: {req.inquiry_title}",
+        "deep_dive": f"Topic Deep-Dive: {req.inquiry_title}",
+    }
+    report_title = title_map.get(vibe, f"Research Report: {req.inquiry_title}")
+
+    vibe_descriptions = {
+        "objective_brief": "Objective executive synthesis grounded strictly in verified passages.",
+        "cornell_study": "Structured cues, core takeaways, and topical synthesis for learning.",
+        "fact_check": "Detailed evidence breakdown: supported facts, nuances, and unverified aspects.",
+        "deep_dive": "Comprehensive contextual narrative connecting all selected source records.",
+    }
+    vibe_desc = vibe_descriptions.get(vibe, "Comprehensive factual evidence report.")
+
+    from app.models import SourceMetadataItem
+
+    unique_sources: dict[str, SourceMetadataItem] = {}
+    for s in req.sources:
+        unique_sources[s.url] = s
+    for p in req.selected_passages:
+        if p.source_url not in unique_sources:
+            unique_sources[p.source_url] = SourceMetadataItem(
+                url=p.source_url,
+                domain=_extract_domain(p.source_url),
+                title=p.source_title,
+                publication_date=p.publication_date,
+            )
+
+    quote_count = len(req.selected_passages)
+    source_count = len(unique_sources)
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    md_lines: list[str] = []
+    md_lines.append(f"# {report_title}\n")
+    md_lines.append(f"*{vibe_desc}*\n")
+    md_lines.append(f"**Generated**: {now_iso} | **Evidence Base**: {quote_count} quotes across {source_count} sources\n")
+
+    if req.custom_focus and req.custom_focus.strip():
+        md_lines.append(f"> **Report Focus & Angle**: {req.custom_focus.strip()}\n")
+
+    md_lines.append("---\n")
+
+    # 1. Summary / Synthesis
+    if req.include_summary:
+        if vibe == "cornell_study":
+            md_lines.append("## Cornell Study Guide & Synthesis\n")
+            md_lines.append("### Key Cues & Inquiry Prompts")
+            if req.selected_passages:
+                for idx, p in enumerate(req.selected_passages, start=1):
+                    fit = p.relevance_explanation or "Key substantive evidence."
+                    domain = _extract_domain(p.source_url)
+                    md_lines.append(f"- **Cue [{idx}]** ({domain}): {fit}")
+            else:
+                md_lines.append("- No specific passages selected.")
+            md_lines.append("\n### Core Takeaways & Synthesis")
+            if req.selected_passages:
+                quotes_summary = " ".join([f'"{p.exact_passage[:120]}..."' for p in req.selected_passages[:3]])
+                md_lines.append(f"The extracted evidence directly addresses '{req.inquiry_title}'. As documented across {source_count} independent sources, the record provides direct quotes: {quotes_summary}")
+            else:
+                md_lines.append("No verbatim evidence passages were included in this study guide.")
+            md_lines.append("")
+        elif vibe == "fact_check":
+            md_lines.append("## Fact-Check Evidence Breakdown\n")
+            md_lines.append("### Directly Supported by Retrieved Evidence")
+            if req.selected_passages:
+                for p in req.selected_passages:
+                    fit = p.relevance_explanation or "Directly verified statement in source text."
+                    md_lines.append(f"- **Documented**: {fit}")
+            else:
+                md_lines.append("- No selected evidence passages provided.")
+            md_lines.append("\n### Contextual Nuances & Limitations")
+            md_lines.append("- All findings reflect the exact wording of retrieved source documents at their time of publication.")
+            md_lines.append("- Technical nuances and regulatory scopes must be evaluated in full primary context rather than isolated headlines.")
+            md_lines.append("\n### What Remains Unverified or Unknown")
+            md_lines.append("- Primary agency records or determinations outside the scope of the selected passages remain unverified.")
+            md_lines.append("")
+        elif vibe == "deep_dive":
+            md_lines.append("## Topic Deep-Dive & Contextual Narrative\n")
+            md_lines.append(f"Investigation into **{req.inquiry_title}** synthesizes evidence from {source_count} independent sources. The collected passages document how various parties, policies, and timelines interact.")
+            if req.selected_passages:
+                for idx, p in enumerate(req.selected_passages, start=1):
+                    domain = _extract_domain(p.source_url)
+                    fit = p.relevance_explanation or "Corroborating record excerpt."
+                    pub = f" (Published: {p.publication_date})" if p.publication_date else ""
+                    md_lines.append(f"\n#### [{idx}] Evidence from {domain}{pub}")
+                    md_lines.append(f"> \"{p.exact_passage}\"\n")
+                    md_lines.append(f"*{fit}*")
+            md_lines.append("")
+        else:  # objective_brief
+            md_lines.append("## Executive Briefing & Synthesis\n")
+            if req.selected_passages:
+                md_lines.append(f"This briefing synthesizes {quote_count} verified verbatim passages addressing the inquiry: **{req.inquiry_title}**.\n")
+                for p in req.selected_passages:
+                    fit = p.relevance_explanation or "Substantive context statement."
+                    domain = _extract_domain(p.source_url)
+                    md_lines.append(f"- **{domain}**: {fit}")
+                md_lines.append("\n**Analytical Note**: The excerpts provide inspectable factual anchors. Unaddressed elements remain subject to further investigation.")
+            else:
+                md_lines.append("No selected quotes were provided for this executive briefing.")
+            md_lines.append("")
+
+    # 2. Evidence Bank
+    if req.include_evidence_bank:
+        md_lines.append("## Structured Evidence Bank\n")
+        if req.selected_passages:
+            for idx, p in enumerate(req.selected_passages, start=1):
+                domain = _extract_domain(p.source_url)
+                pub = p.publication_date or "Unknown"
+                fit = p.relevance_explanation or "Context quote addressing inquiry terms."
+                md_lines.append(f"### Evidence [{idx}]: {domain}")
+                md_lines.append(f"> \"{p.exact_passage}\"\n")
+                md_lines.append(f"- **Fit & Significance**: {fit}")
+                md_lines.append(f"- **Source URL**: [{domain}]({p.source_url})")
+                md_lines.append(f"- **Publication Date**: {pub}\n")
+        else:
+            md_lines.append("*No evidence passages were selected for inclusion in the Evidence Bank.*\n")
+
+    # 3. Open Questions
+    if req.include_open_questions:
+        md_lines.append("## Unresolved Assumptions & Next Questions\n")
+        md_lines.append(f"1. **Primary Records**: What direct government agency filings, official council records, or primary court filings confirm the details of '{req.inquiry_title}'?")
+        md_lines.append("2. **Temporal Validity**: Have there been more recent updates, policy reversals, or amendments since the dates published above?")
+        md_lines.append("3. **Counter-Evidence**: Do credible opposing viewpoints or contradictory datasets exist that challenge these excerpts?\n")
+
+    # 4. Works Cited
+    if req.include_works_cited:
+        md_lines.append("## Works Cited & Bibliography\n")
+        if unique_sources:
+            for idx, (url, s) in enumerate(unique_sources.items(), start=1):
+                domain = s.domain or _extract_domain(url)
+                title = s.title or domain
+                pub = s.publication_date or "Date unknown"
+                ret = s.retrieval_date or "Retrieved during investigation"
+                md_lines.append(f"{idx}. **{domain}** — [{title}]({url})")
+                md_lines.append(f"   - *Published*: {pub} | *Retrieval*: {ret}")
+        else:
+            md_lines.append("*No sources recorded.*")
+
+    return ReportResponse(
+        report_title=report_title,
+        vibe_used=vibe,
+        markdown_content="\n".join(md_lines),
+        selected_quote_count=quote_count,
+        source_count=source_count,
+        is_fallback=True,
+    )
+

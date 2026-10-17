@@ -120,6 +120,15 @@ class ClarificationAnalysisLLM(BaseModel):
     )
 
 
+class PassageRelevanceLLM(BaseModel):
+    """Schema for individual quote-to-inquiry relevance."""
+    passage_id: str
+    relevance_explanation: str = Field(
+        description="One concise sentence explaining how this exact quote relates to the inquiry."
+    )
+
+
+
 # ---------------------------------------------------------------------------
 # API request / response models
 # ---------------------------------------------------------------------------
@@ -236,6 +245,38 @@ class ClarificationResponse(BaseModel):
 # Research API models (Milestone 2C)
 # ---------------------------------------------------------------------------
 
+class PassageRelevanceLLM(BaseModel):
+    """LLM evaluation of how an extracted passage fits the inquiry."""
+    passage_id: str
+    relevance_explanation: str = Field(
+        description="One concise sentence explaining how this exact quote relates to the inquiry."
+    )
+
+
+class EvidenceSynthesisLLM(BaseModel):
+    """LLM synthesis of retrieved evidence passages for an inquiry (Milestone 3B)."""
+    inquiry_synthesis: str = Field(
+        description="A concise, neutral 2-4 sentence synthesis explaining how the retrieved passages fit the user inquiry, what they support or clarify, and what remains unverified or unknown."
+    )
+    suggested_next_queries: list[str] = Field(
+        default_factory=list,
+        description="2 to 3 concrete follow-up questions or sharper search phrases to help explore primary records or unresolved aspects.",
+    )
+    passage_relevances: list[PassageRelevanceLLM] = Field(
+        default_factory=list,
+        description="Per-passage relevance explanations for each retrieved quote.",
+    )
+
+    def __init__(self, **data):
+        if "passages" in data and "passage_relevances" not in data:
+            data["passage_relevances"] = data.pop("passages")
+        super().__init__(**data)
+
+    @property
+    def passages(self) -> list[PassageRelevanceLLM]:
+        return self.passage_relevances
+
+
 class ResearchRequest(BaseModel):
     """Incoming request to gather candidate evidence for a single claim."""
     submission_id: str = Field(..., min_length=1, max_length=200)
@@ -245,6 +286,7 @@ class ResearchRequest(BaseModel):
     explicit_location: Optional[str] = Field(default=None, max_length=500)
     explicit_date: Optional[str] = Field(default=None, max_length=500)
     source_url: Optional[str] = Field(default=None, max_length=4096)
+    override_query: Optional[str] = Field(default=None, max_length=500)
 
 
 class ResearchResponse(BaseModel):
@@ -265,3 +307,61 @@ class ResearchResponse(BaseModel):
     status_message: str
     completed_in_seconds: float
     search_failure_message: Optional[str] = None
+    inquiry_synthesis: Optional[str] = None
+    suggested_next_queries: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Report & Evidence Bank models
+# ---------------------------------------------------------------------------
+
+class ReportVibe(str, enum.Enum):
+    OBJECTIVE_BRIEF = "objective_brief"
+    CORNELL_STUDY = "cornell_study"
+    FACT_CHECK = "fact_check"
+    DEEP_DIVE = "deep_dive"
+
+
+class SelectedPassageItem(BaseModel):
+    passage_id: Optional[str] = None
+    exact_passage: str = Field(..., min_length=1)
+    context_surrounding: Optional[str] = None
+    source_url: str
+    relevance_explanation: Optional[str] = None
+    publication_date: Optional[str] = None
+    updated_date: Optional[str] = None
+    retrieval_timestamp: Optional[str] = None
+    source_title: Optional[str] = None
+
+
+class SourceMetadataItem(BaseModel):
+    url: str
+    domain: Optional[str] = None
+    title: Optional[str] = None
+    publication_date: Optional[str] = None
+    retrieval_date: Optional[str] = None
+    status: Optional[str] = "retrieved"
+
+
+class ReportRequest(BaseModel):
+    inquiry_title: str = Field(..., min_length=1, max_length=1000)
+    report_vibe: str = Field(default="objective_brief")
+    include_summary: bool = True
+    include_evidence_bank: bool = True
+    include_works_cited: bool = True
+    include_open_questions: bool = True
+    custom_focus: Optional[str] = Field(default=None, max_length=1000)
+    selected_passages: list[SelectedPassageItem] = Field(default_factory=list)
+    sources: list[SourceMetadataItem] = Field(default_factory=list)
+
+
+class ReportResponse(BaseModel):
+    report_title: str
+    vibe_used: str
+    markdown_content: str
+    selected_quote_count: int
+    source_count: int
+    generated_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+    is_fallback: bool = False

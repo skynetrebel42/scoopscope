@@ -28,6 +28,36 @@
 
         <!-- Input Section -->
         <main class="main-content">
+            <!-- Sticky Floating Inquiry Bar & Progress Banner (Milestone 3B Upgrade) -->
+            <div id="sticky-inquiry-bar" class="sticky-inquiry-bar hidden">
+                <div class="sticky-inquiry-header">
+                    <div class="sticky-inquiry-pill">
+                        <span class="sticky-inquiry-icon" aria-hidden="true">🔍</span>
+                        <span class="sticky-inquiry-label">Investigating:</span>
+                        <span id="sticky-inquiry-text" class="sticky-inquiry-text">No active inquiry</span>
+                    </div>
+                    <button id="btn-sticky-edit" type="button" class="btn-sticky-edit" title="Scroll to edit inquiry scope">
+                        Edit ↑
+                    </button>
+                </div>
+                <!-- Loading Progress Banner embedded directly in sticky bar -->
+                <div id="loading-progress-banner" class="loading-progress-banner hidden" role="status" aria-live="polite">
+                    <div class="progress-bar-track">
+                        <div class="progress-bar-slider"></div>
+                    </div>
+                    <div class="progress-content">
+                        <span class="loading-spinner-sprite" aria-hidden="true"></span>
+                        <span id="loading-progress-message" class="loading-progress-message">Analyzing your statement and checking scope…</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top-Level Session Inquiry Tabs (Milestone 3B Multi-Tab Upgrade) -->
+            <div id="session-tabs-bar" class="session-tabs-bar hidden" role="tablist" aria-label="Investigation Sessions">
+                <div id="session-tabs-list" class="session-tabs-list"></div>
+                <button id="btn-new-session" type="button" class="btn-new-session" title="Start a fresh inquiry without losing previous ones">+ New</button>
+            </div>
+
             <form id="extraction-form" class="input-card" autocomplete="off">
                 <div class="form-group">
                     <label for="input-text" class="form-label">Statement</label>

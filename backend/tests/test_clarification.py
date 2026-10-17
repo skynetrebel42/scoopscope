@@ -265,7 +265,6 @@ async def test_acceptance_check_3_clear_input_bypasses_redundant_clarification()
 
 
 @pytest.mark.anyio
-@pytest.mark.anyio
 async def test_acceptance_check_3_full_two_round_clarification_flow_and_hard_ceiling():
     """Test full 2-round clarification flow:
     - Round 1 (0 exchanges): unclear -> clarification_needed=True, max_rounds_reached=False.

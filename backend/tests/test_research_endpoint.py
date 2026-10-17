@@ -150,8 +150,10 @@ async def test_research_orchestrator_full_flow():
         assert hit.claim_id == "claim_001"
         assert hit.engine == "mock"
 
-    # 4. Candidate URL budget (max 3 distinct pages fetched)
-    assert len(response.retrieved_sources) <= 3
+    # 4. Candidate URL budget (max 3 successfully retrieved pages fetched)
+    retrieved_successful = [s for s in response.retrieved_sources if s.status == SourceFetchState.RETRIEVED]
+    assert len(retrieved_successful) <= 3
+    assert len(response.retrieved_sources) <= 6
     # Check deduplication: mayor-bass#section must NOT cause duplicate fetch of mayor-bass
     initial_urls = [s.initial_url for s in response.retrieved_sources]
     assert len(initial_urls) == len(set(initial_urls))

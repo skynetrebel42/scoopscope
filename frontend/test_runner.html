@@ -29,6 +29,36 @@
 
         <!-- Input Section -->
         <main class="main-content">
+            <!-- Sticky Floating Inquiry Bar & Progress Banner (Milestone 3B Upgrade) -->
+            <div id="sticky-inquiry-bar" class="sticky-inquiry-bar hidden">
+                <div class="sticky-inquiry-header">
+                    <div class="sticky-inquiry-pill">
+                        <span class="sticky-inquiry-icon" aria-hidden="true">🔍</span>
+                        <span class="sticky-inquiry-label">Investigating:</span>
+                        <span id="sticky-inquiry-text" class="sticky-inquiry-text">No active inquiry</span>
+                    </div>
+                    <button id="btn-sticky-edit" type="button" class="btn-sticky-edit" title="Scroll to edit inquiry scope">
+                        Edit ↑
+                    </button>
+                </div>
+                <!-- Loading Progress Banner embedded directly in sticky bar -->
+                <div id="loading-progress-banner" class="loading-progress-banner hidden" role="status" aria-live="polite">
+                    <div class="progress-bar-track">
+                        <div class="progress-bar-slider"></div>
+                    </div>
+                    <div class="progress-content">
+                        <span class="loading-spinner-sprite" aria-hidden="true"></span>
+                        <span id="loading-progress-message" class="loading-progress-message">Analyzing your statement and checking scope…</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top-Level Session Inquiry Tabs (Milestone 3B Multi-Tab Upgrade) -->
+            <div id="session-tabs-bar" class="session-tabs-bar hidden" role="tablist" aria-label="Investigation Sessions">
+                <div id="session-tabs-list" class="session-tabs-list"></div>
+                <button id="btn-new-session" type="button" class="btn-new-session" title="Start a fresh inquiry without losing previous ones">+ New</button>
+            </div>
+
             <form id="extraction-form" class="input-card" autocomplete="off">
                 <div class="form-group">
                     <label for="input-text" class="form-label">Statement</label>
@@ -172,6 +202,7 @@
         const origFetch = window.fetch ? window.fetch.bind(window) : null;
         let mockQueue = [];
         let researchMockQueue = [];
+        let reportMockQueue = [];
         window.fetch = async function (url, opts) {
             if (url === "/api/extract" || url === "/api/clarify") {
                 const body = JSON.parse(opts.body);
@@ -188,6 +219,24 @@
                     throw new Error("Unexpected research fetch call without mock handler: " + body.claim_id);
                 }
                 return handler(body);
+            }
+            if (url === "/api/report") {
+                const body = JSON.parse(opts.body);
+                const handler = reportMockQueue.shift();
+                if (handler) {
+                    return handler(body);
+                }
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        report_title: body.inquiry_title || "Investigation Findings",
+                        markdown_content: `# ${body.inquiry_title}\n\n## Topic & Inquiry Synthesis\nEuropean food safety authorities suspended beef import certifications from three packaging plants.\n\n## Structured Evidence Bank\n> "European food safety authorities suspended beef import certifications from three packaging plants following pesticide residue detections."\n\n## Works Cited\n- [European Commission Food Safety Audit](https://ec.europa.eu/food/safety/beef-safety) (Domain: ec.europa.eu, Published: 2024-09-15)`,
+                        evidence_count: (body.selected_passages || []).length,
+                        sources_count: (body.sources || []).length,
+                        generated_at: new Date().toISOString(),
+                    })
+                };
             }
             if (origFetch) {
                 return origFetch(url, opts);
@@ -241,7 +290,7 @@
             };
         }
 
-        function createResearchResponse(submissionId, claimId, hits, sources, passages) {
+        function createResearchResponse(submissionId, claimId, hits, sources, passages, inquirySynthesis, suggestedNextQueries) {
             return {
                 ok: true,
                 status: 200,
@@ -262,7 +311,9 @@
                     candidate_passages: passages || [],
                     researched_at: new Date().toISOString(),
                     status_message: "Gathered candidate hits; safely retrieved pages in 0.35s.",
-                    completed_in_seconds: 0.35
+                    completed_in_seconds: 0.35,
+                    inquiry_synthesis: inquirySynthesis || "The retrieved passage confirms that Mayor Karen Bass took office in December 2022.",
+                    suggested_next_queries: suggestedNextQueries || ["Check primary government gazette", "Search official archives"]
                 })
             };
         }
@@ -1247,6 +1298,430 @@
             assert(document.getElementById("claims-outdated-banner") !== null, "Outdated draft banner shown on input edit");
             assert(rBtn1.disabled === true, "Research button disabled after draft edit");
             assert(clarSection.classList.contains("hidden"), "Clarification section remains hidden on draft edit");
+
+            // =========================================================================
+            // Suite 11: Milestone 3B Decluttered Research UI & Visible Progress Banner
+            // =========================================================================
+            log("\n--- Suite 11: Milestone 3B Decluttered Research UI & Visible Progress Banner ---");
+
+            const loadingBanner = document.getElementById("loading-progress-banner");
+            const loadingMsg = document.getElementById("loading-progress-message");
+
+            assert(loadingBanner !== null, "Loading progress banner element exists in DOM");
+            assert(loadingMsg !== null, "Loading progress message element exists in DOM");
+            assert(loadingBanner.querySelector(".progress-bar-slider") !== null, "Sliding progress bar element exists");
+            assert(loadingBanner.querySelector(".loading-spinner-sprite") !== null, "Loading spinner sprite exists");
+
+            // 1. Initial intake loading progress
+            let resolveClarify1;
+            mockQueue.push(async (b) => {
+                return new Promise((resolve) => {
+                    resolveClarify1 = () => resolve(createClarificationResponse(b.text, "Which product?", ["Beef", "Poultry", "Dairy"], 1));
+                });
+            });
+
+            inputText.value = "Did Europe ban Argentinian beef because of chemicals?";
+            form.dispatchEvent(new Event("submit"));
+            await delay(20);
+
+            assert(!loadingBanner.classList.contains("hidden"), "Loading progress banner visible during initial intake");
+            assert(loadingMsg.textContent.includes("Analyzing your statement and checking scope"), "Intake loading message displayed");
+
+            resolveClarify1();
+            await delay(50);
+            assert(loadingBanner.classList.contains("hidden"), "Loading banner hidden after intake completes");
+
+            // 2. Clarification selection loading progress
+            let resolveClarify2;
+            mockQueue.push(async (b) => {
+                return new Promise((resolve) => {
+                    resolveClarify2 = () => resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            submission_id: "mock_m3b_sub",
+                            submitted_text: inputText.value,
+                            source_url: null,
+                            purpose: "check_claim",
+                            is_clear: true,
+                            clarification_needed: false,
+                            round_index: 2,
+                            max_rounds_reached: false,
+                            interpreted_question: "Did European authorities ban Argentinian beef due to chemical contamination?",
+                            material_uncertainties: [],
+                            subclaims: [
+                                {
+                                    id: "claim-causal-1",
+                                    original_wording: "Europe banned Argentinian beef because of chemicals",
+                                    normalized_assertion: "The European Union banned imports of Argentinian beef due to chemical residues.",
+                                    claim_type: "causal",
+                                    explicit_date: null,
+                                    explicit_location: "Europe",
+                                    explicit_quantity: null,
+                                    qualifications: null
+                                },
+                                {
+                                    id: "claim-factual-1",
+                                    original_wording: "Argentinian beef contains chemicals",
+                                    normalized_assertion: "Argentinian beef exports tested positive for banned chemical residues.",
+                                    claim_type: "factual",
+                                    explicit_date: null,
+                                    explicit_location: "Argentina",
+                                    explicit_quantity: null,
+                                    qualifications: null
+                                }
+                            ],
+                            status_message: "Inquiry scope confirmed · Ready to select a checkable claim for research"
+                        })
+                    });
+                });
+            });
+
+            const choiceBtn1 = clarChoicesGroup.children[0];
+            choiceBtn1.click();
+            await delay(20);
+
+            assert(!loadingBanner.classList.contains("hidden"), "Loading progress banner visible during clarification selection");
+            assert(loadingMsg.textContent.includes("Updating inquiry scope"), "Clarification loading message displayed");
+
+            resolveClarify2();
+            await delay(50);
+            assert(loadingBanner.classList.contains("hidden"), "Loading banner hidden after clarification completes");
+
+            // 3. Verify causal claim badge renders as "Checkable claim (causal)"
+            const causalCard = document.getElementById("claim-card-claim-causal-1");
+            assert(causalCard !== null, "Causal claim card rendered");
+            const causalTag = causalCard.querySelector(".claim-type-tag");
+            assert(causalTag.textContent === "Checkable claim (causal)", "claim_type === 'causal' displays badge 'Checkable claim (causal)'");
+            assert(causalTag.classList.contains("checkable-claim"), "Causal badge has checkable-claim class");
+
+            const factualCard = document.getElementById("claim-card-claim-factual-1");
+            assert(factualCard.querySelector(".claim-type-tag").textContent === "Checkable claim", "factual claim displays badge 'Checkable claim'");
+
+            // 4. Claim research loading progress
+            let resolveResearch;
+            researchMockQueue.push(async (b) => {
+                return new Promise((resolve) => {
+                    resolveResearch = () => resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            submission_id: b.submission_id,
+                            claim_id: "claim-causal-1",
+                            queries_used: [
+                                {
+                                    query_id: "qry_m3b_1",
+                                    claim_id: "claim-causal-1",
+                                    query_text: "EU ban Argentinian beef chemical residues",
+                                    query_intent: "primary_assertion",
+                                    generated_at: new Date().toISOString()
+                                }
+                            ],
+                            search_hits: [
+                                {
+                                    result_id: "hit_m3b_1",
+                                    query_id: "qry_m3b_1",
+                                    claim_id: "claim-causal-1",
+                                    url: "https://ec.europa.eu/food/safety/beef-safety",
+                                    title: "European Commission Food Safety Audit",
+                                    snippet: "European regulators temporarily restricted imports of certain beef shipments.",
+                                    rank: 1,
+                                    engine: "serper",
+                                    is_snippet_only: true
+                                }
+                            ],
+                            retrieved_sources: [
+                                {
+                                    source_id: "src_m3b_1",
+                                    initial_url: "https://ec.europa.eu/food/safety/beef-safety",
+                                    final_url: "https://ec.europa.eu/food/safety/beef-safety",
+                                    redirect_count: 0,
+                                    resolved_ip: "104.18.22.45",
+                                    status: "retrieved",
+                                    http_status_code: 200,
+                                    content_type: "text/html",
+                                    response_size_bytes: 45200,
+                                    fetched_at: new Date().toISOString(),
+                                    extracted_text: "Full official report on beef inspections.",
+                                    raw_text: "<p>Full official report on beef inspections.</p>"
+                                },
+                                {
+                                    source_id: "src_m3b_2",
+                                    initial_url: "https://inaccessible.example.com/err",
+                                    final_url: "https://inaccessible.example.com/err",
+                                    redirect_count: 0,
+                                    status: "inaccessible",
+                                    http_status_code: 404,
+                                    fetched_at: new Date().toISOString(),
+                                    error_message: "HTTP_ERROR: Server returned status 404."
+                                }
+                            ],
+                            candidate_passages: [
+                                {
+                                    passage_id: "psg_m3b_1",
+                                    source_id: "src_m3b_1",
+                                    claim_id: "claim-causal-1",
+                                    source_url: "https://ec.europa.eu/food/safety/beef-safety",
+                                    exact_passage: "European food safety authorities suspended beef import certifications from three packaging plants following pesticide residue detections.",
+                                    context_surrounding: "In September 2024, European food safety authorities suspended beef import certifications from three packaging plants following pesticide residue detections. Inspections resumed after remediation.",
+                                    publication_date: "2024-09-15",
+                                    updated_date: "2024-10-01",
+                                    date_provenance: "meta:article:published_time",
+                                    relevance_explanation: "This quote directly confirms that European authorities suspended certifications due to chemical residues found in packaging plants.",
+                                    relevance_note: "Keyword match (3 claim terms: ban, beef, chemical)",
+                                    source_dependence: "primary",
+                                    retrieved_at: new Date().toISOString()
+                                }
+                            ],
+                            inquiry_synthesis: "Retrieved primary regulatory documents confirm that European authorities suspended import certifications for specific Argentinian beef facilities following chemical residue detections. However, this was a targeted plant suspension rather than a comprehensive countrywide embargo.",
+                            suggested_next_queries: [
+                                "European Commission Food Safety official audit of Argentine beef 2024",
+                                "SENASA Argentina official response to European beef pesticide inspection"
+                            ],
+                            researched_at: new Date().toISOString(),
+                            status_message: "Gathered 1 candidate search hit; fetched 1 of 2 candidate page(s) in 0.45s.",
+                            completed_in_seconds: 0.45
+                        })
+                    });
+                });
+            });
+
+            const researchBtnCausal = document.getElementById("btn-research-claim-causal-1");
+            researchBtnCausal.click();
+            await delay(20);
+
+            assert(!loadingBanner.classList.contains("hidden"), "Loading progress banner visible during claim research");
+            assert(loadingMsg.textContent.includes("Searching sources, extracting verbatim quotes"), "Research loading message displayed");
+
+            resolveResearch();
+            await delay(50);
+            assert(loadingBanner.classList.contains("hidden"), "Loading banner hidden after research completes");
+
+            // 5. Sticky Inquiry Bar & Cornell Notes layout verification
+            const stickyBar = document.getElementById("sticky-inquiry-bar");
+            assert(stickyBar !== null, "Sticky inquiry bar element exists");
+            const stickyText = document.getElementById("sticky-inquiry-text");
+            assert(stickyText !== null, "Sticky inquiry text element exists");
+            assert(stickyText.textContent.length > 0, "Sticky inquiry text is populated");
+            const btnStickyEdit = document.getElementById("btn-sticky-edit");
+            assert(btnStickyEdit !== null, "Sticky Edit button exists");
+
+            // Text fragment helper unit checks
+            const testFragShort = window.__ScoopScope.buildTextFragmentUrl("https://example.com/article", "Short verbatim quote");
+            assert(testFragShort === "https://example.com/article#:~:text=Short%20verbatim%20quote", "Short text fragment URL encoded properly");
+
+            const longQuote = "The European Commission officially suspended import approvals for multiple beef facilities across South America following inspections";
+            const testFragLong = window.__ScoopScope.buildTextFragmentUrl("https://example.com/article#section", longQuote);
+            assert(testFragLong.startsWith("https://example.com/article#:~:text="), "Text fragment strips existing hash and appends fragment");
+            assert(testFragLong.includes(","), "Long text fragment includes comma between start and end word groups");
+
+            const researchContainer = document.getElementById("research-container-claim-causal-1");
+            assert(researchContainer !== null, "Research container rendered");
+
+            // (1) Synthesis Card
+            const synthCard = researchContainer.querySelector(".inquiry-synthesis-card");
+            assert(synthCard !== null, "Synthesis card (.inquiry-synthesis-card) rendered prominently");
+            assert(synthCard.querySelector(".synthesis-card-title") !== null, "Synthesis card has title 'How the Evidence Fits Your Inquiry'");
+            assert(synthCard.textContent.includes("targeted plant suspension rather than a comprehensive countrywide embargo"), "inquiry_synthesis text rendered");
+
+            // (2) Per-Claim Research Tabs Workspace & Paired Cornell Notes Grid
+            const researchTabsBar = researchContainer.querySelector(".research-tabs-bar");
+            assert(researchTabsBar !== null, "Per-claim research tabs bar (.research-tabs-bar) rendered");
+            const initialTabs = researchTabsBar.querySelectorAll(".research-tab-btn");
+            assert(initialTabs.length >= 1, "At least 1 research tab rendered");
+            assert(initialTabs[0].textContent.includes("Tab 1"), "Tab 1: Initial Inquiry rendered");
+            assert(initialTabs[0].classList.contains("active"), "Tab 1 is initially active");
+
+            const cornellGrid = researchContainer.querySelector(".cornell-notes-grid");
+            assert(cornellGrid !== null, "Cornell notes grid (.cornell-notes-grid) rendered");
+
+            // Paired header row
+            const headerRow = cornellGrid.querySelector(".cornell-notes-header-row");
+            assert(headerRow !== null, "Paired header row (.cornell-notes-header-row) rendered");
+            const colHeaders = headerRow.querySelectorAll(".cornell-col-header");
+            assert(colHeaders.length === 2, "Header row has exactly 2 column headers");
+            assert(colHeaders[0].textContent.includes("KEY CUES & SOURCES"), "Left column header is 'KEY CUES & SOURCES'");
+            assert(colHeaders[1].textContent.includes("SUPPORTING VERBATIM QUOTES"), "Right column header is 'SUPPORTING VERBATIM QUOTES'");
+
+            // Paired row
+            const pairRow = cornellGrid.querySelector(".cornell-pair-row");
+            assert(pairRow !== null, "Paired cornell row (.cornell-pair-row) rendered");
+
+            // Left Cue Cell
+            const cueCell = pairRow.querySelector(".cornell-cue-cell");
+            assert(cueCell !== null, "Cornell cue cell (.cornell-cue-cell) rendered");
+            const cueCard = cueCell.querySelector(".cornell-cue-card");
+            assert(cueCard !== null, "Cue card (.cornell-cue-card) rendered");
+            assert(cueCard.querySelector(".cue-index-badge").textContent === "[1]", "Cue card bullet index [1] rendered");
+            assert(cueCard.querySelector(".cue-fit-text").textContent.includes("This quote directly confirms that European authorities suspended certifications"), "relevance_explanation ('How this fits') rendered");
+            assert(cueCard.textContent.includes("Published: 2024-09-15"), "Defensible publication date rendered");
+            assert(cueCard.textContent.includes("(Updated: 2024-10-01)"), "Updated publication date rendered");
+
+            // Right Notes Cell
+            const quoteCell = pairRow.querySelector(".cornell-quote-cell");
+            assert(quoteCell !== null, "Cornell quote cell (.cornell-quote-cell) rendered");
+            const quoteBullet = quoteCell.querySelector(".cornell-quote-bullet");
+            assert(quoteBullet !== null, "Cornell quote bullet (.cornell-quote-bullet) rendered");
+            assert(quoteBullet.querySelector(".quote-index-badge").textContent === "[1]", "Quote bullet index [1] rendered");
+
+            // Quote selection checkbox ("☑ Include in Report")
+            const quoteCheckbox = quoteBullet.querySelector(".quote-select-checkbox");
+            assert(quoteCheckbox !== null, "Quote include checkbox (.quote-select-checkbox) rendered");
+            assert(quoteCheckbox.checked === true, "Quote checkbox is checked by default for substantive quote");
+
+            const focusedQuote = quoteBullet.querySelector(".focused-quote-text");
+            assert(focusedQuote !== null, "Focused quote text element rendered");
+            assert(focusedQuote.textContent.includes("European food safety authorities suspended beef import certifications"), "Exact verbatim quote rendered");
+            assert(focusedQuote.href.includes("#:~:text="), "Quote text element has W3C text fragment deep link");
+
+            const exactLink = quoteBullet.querySelector(".link-find-exact");
+            assert(exactLink !== null, "Find exact line link (.link-find-exact) rendered");
+            assert(exactLink.href.includes("#:~:text="), "Find exact line link has W3C text fragment deep link");
+
+            // More Toggle & Full Context
+            const moreBtn = quoteBullet.querySelector(".btn-more-toggle");
+            assert(moreBtn !== null, "More button (.btn-more-toggle) rendered for long/surrounding context");
+            assert(moreBtn.textContent === "More ▾", "More button initial text is 'More ▾'");
+            const fullCtx = quoteBullet.querySelector(".full-context-container");
+            assert(fullCtx !== null, "Full context container (.full-context-container) rendered");
+            assert(fullCtx.classList.contains("hidden"), "Full context container is hidden initially");
+
+            moreBtn.click();
+            assert(!fullCtx.classList.contains("hidden"), "Full context container expands on More click");
+            assert(moreBtn.textContent === "Less ▴", "More button text toggles to 'Less ▴'");
+
+            moreBtn.click();
+            assert(fullCtx.classList.contains("hidden"), "Full context container collapses on Less click");
+            assert(moreBtn.textContent === "More ▾", "More button text toggles back to 'More ▾'");
+
+            // (3) Report & Evidence Bank Studio Panel Verification
+            const reportPanel = researchContainer.querySelector(".report-builder-panel");
+            assert(reportPanel !== null, "Report & Evidence Bank studio panel (.report-builder-panel) rendered");
+            const counterBadge = reportPanel.querySelector(".evidence-counter-badge");
+            assert(counterBadge !== null, "Evidence counter badge rendered");
+            assert(counterBadge.textContent.includes("selected across tabs"), "Counter badge reflects selected quotes across tabs");
+            assert(/\d+\s+quotes?\s+from\s+\d+\s+sources?\s+selected across tabs/.test(counterBadge.textContent), "Counter badge text formatted properly");
+
+            // Test Clear and Select All toggles
+            const counterBtns = reportPanel.querySelectorAll(".btn-counter-toggle");
+            assert(counterBtns.length === 2, "Select All and Clear buttons exist");
+            const selectAllBtn = counterBtns[0];
+            const clearBtn = counterBtns[1];
+
+            clearBtn.click();
+            assert(counterBadge.textContent.includes("0 quotes from 0 sources selected across tabs"), "Clear deselects all quotes");
+            assert(quoteCheckbox.checked === false, "Quote checkbox is unchecked after Clear click");
+
+            selectAllBtn.click();
+            assert(!counterBadge.textContent.includes("0 quotes"), "Select All re-selects quotes");
+            assert(quoteCheckbox.checked === true, "Quote checkbox is re-checked after Select All click");
+
+            // Test Report Vibe Selector & Sections
+            const vibeSelect = reportPanel.querySelector(".report-vibe-select");
+            assert(vibeSelect !== null, "Report vibe selector exists");
+            assert(vibeSelect.options.length === 4, "4 report vibe options exist");
+            const sectionCheckboxes = reportPanel.querySelectorAll(".report-sections-grid input[type='checkbox']");
+            assert(sectionCheckboxes.length === 4, "4 section checkboxes exist (summary, evidence_bank, works_cited, open_questions)");
+
+            // Test Report Generation
+            const generateBtn = reportPanel.querySelector(".btn-generate-report");
+            assert(generateBtn !== null, "Synthesize Report button exists");
+            generateBtn.click();
+            await delay(50);
+
+            const outputCard = reportPanel.querySelector(".report-output-card");
+            assert(outputCard !== null, "Report output card exists");
+            assert(!outputCard.classList.contains("hidden"), "Report output card visible after generation");
+            assert(outputCard.querySelector(".btn-copy-report") !== null, "Copy Markdown button rendered");
+            assert(outputCard.querySelector(".btn-print-report") !== null, "Print / Save PDF button rendered");
+            assert(outputCard.textContent.includes("Topic & Inquiry Synthesis"), "Report synthesis section rendered");
+
+            // (4) Explore Further (Actionable Chips & Multi-Tab Creation)
+            const exploreCard = researchContainer.querySelector(".explore-further-card");
+            assert(exploreCard !== null, "Explore further card rendered");
+            const queryChips = exploreCard.querySelectorAll(".explore-query-chip");
+            assert(queryChips.length >= 1, "Explore query chips rendered");
+            const newInqBtns = exploreCard.querySelectorAll(".btn-new-inquiry");
+            assert(newInqBtns.length >= 1, "New Inquiry action buttons rendered");
+
+            // Clicking New Inquiry populates top statement input
+            newInqBtns[0].click();
+            assert(inputText.value.includes("European Commission Food Safety official audit"), "Clicking New Inquiry loads query into main statement input");
+
+            // Queue mock response for second research run (Tab 2)
+            researchMockQueue.push(async (b) => {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        submission_id: b.submission_id,
+                        claim_id: "claim-causal-1",
+                        candidate_passages: [
+                            {
+                                passage_id: "psg_m3b_2",
+                                source_id: "src_m3b_2",
+                                claim_id: "claim-causal-1",
+                                source_url: "https://example.com/audit2",
+                                exact_passage: "Audit inspection confirmed non-compliance at two packaging facilities.",
+                                context_surrounding: "Audit inspection confirmed non-compliance at two packaging facilities in late 2024.",
+                                publication_date: "2024-10-15",
+                                relevance_explanation: "Confirms non-compliance findings.",
+                                relevance_note: "Audit match"
+                            }
+                        ],
+                        inquiry_synthesis: "Follow-up audit records confirm specific feed facility findings.",
+                        suggested_next_queries: [],
+                        status_message: "Tab 2 complete",
+                        completed_in_seconds: 0.3
+                    })
+                };
+            });
+
+            // Clicking explore chip runs research and appends Tab 2
+            queryChips[0].click();
+            await delay(60);
+
+            const updatedTabs = researchContainer.querySelectorAll(".research-tab-btn");
+            assert(updatedTabs.length === 2, "Per-claim research tabs now has 2 tabs");
+            assert(updatedTabs[1].classList.contains("active"), "Newly loaded Tab 2 is active");
+            assert(researchContainer.textContent.includes("Audit inspection confirmed non-compliance"), "Tab 2 content rendered");
+
+            // Switch back to Tab 1 without re-fetching
+            updatedTabs[0].click();
+            await delay(20);
+            assert(researchContainer.textContent.includes("European food safety authorities suspended beef import certifications"), "Switching to Tab 1 restores Tab 1 results from memory");
+
+            // (5) Top-Level Session Tabs Verification
+            const sessionTabsBar = document.getElementById("session-tabs-bar");
+            assert(sessionTabsBar !== null, "Session tabs bar exists");
+            assert(!sessionTabsBar.classList.contains("hidden"), "Session tabs bar is visible");
+            const sessionTabBtns = sessionTabsBar.querySelectorAll(".session-tab-btn");
+            assert(sessionTabBtns.length >= 1, "Session tabs list has session button");
+
+            const btnNewSession = document.getElementById("btn-new-session");
+            assert(btnNewSession !== null, "+ New Session button exists");
+
+            // Clicking + New clears input for new inquiry while preserving session 1
+            btnNewSession.click();
+            assert(inputText.value === "", "New Session button clears statement input");
+            assert(resultsSection.classList.contains("hidden"), "Results section hidden for fresh session");
+            assert(window.__ScoopScope.sessionInquiries.length >= 1, "Previous inquiry preserved in sessionInquiries");
+
+            // Switching back to Session 1 tab restores Statement 1, its claims, and research
+            const sess1Btn = sessionTabsBar.querySelector(".session-tab-btn");
+            sess1Btn.click();
+            await delay(30);
+            assert(!resultsSection.classList.contains("hidden"), "Clicking Session 1 tab restores previous inquiry results");
+            assert(researchContainer.textContent.includes("European food safety authorities"), "Restored session maintains researched claim tabs");
+
+            // (6) Collapsed Technical Audit Drawer
+            const auditDrawer = researchContainer.querySelector(".technical-audit-drawer");
+            assert(auditDrawer !== null, "Technical audit drawer (<details class='technical-audit-drawer'>) rendered");
+            assert(auditDrawer.open === false, "Technical audit drawer is collapsed by default");
+            assert(auditDrawer.querySelector(".audit-summary-header").textContent.includes("Technical Audit & Raw Search Data"), "Audit summary header rendered");
+            assert(auditDrawer.querySelector(".search-hits-group") !== null, "Search engine preview hits housed inside audit drawer");
+            assert(auditDrawer.querySelector(".source-card") !== null, "Detailed source network records housed inside audit drawer");
+            assert(auditDrawer.querySelector(".text-viewer-toggle") !== null, "Full page text viewer housed inside audit drawer");
 
             log("\n=================================================");
             log(`ALL TESTS PASSED: ${passedCount} assertions passed, 0 failures.`);

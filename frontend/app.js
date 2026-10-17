@@ -18,6 +18,11 @@
     const errorDismiss = document.getElementById("error-dismiss");
     const errorRetry = document.getElementById("error-retry");
 
+    // Milestone 3B: Sticky Floating Inquiry Bar
+    const stickyInquiryBar = document.getElementById("sticky-inquiry-bar");
+    const stickyInquiryText = document.getElementById("sticky-inquiry-text");
+    const btnStickyEdit = document.getElementById("btn-sticky-edit");
+
     // Milestone 3A: Clarification DOM elements
     const clarificationSection = document.getElementById("clarification-section");
     const clarificationRoundBadge = document.getElementById("clarification-round-badge");
@@ -39,6 +44,11 @@
     const limitationNoteText = document.getElementById("limitation-note-text");
     const evidenceStageNotice = document.getElementById("evidence-stage-notice");
 
+    // Top-Level Session Inquiry Tabs (Milestone 3B Multi-Tab Upgrade)
+    const sessionTabsBar = document.getElementById("session-tabs-bar");
+    const sessionTabsList = document.getElementById("session-tabs-list");
+    const btnNewSession = document.getElementById("btn-new-session");
+
     const resultsSection = document.getElementById("results-section");
     const resultsStatus = document.getElementById("results-status");
     const submittedText = document.getElementById("submitted-text");
@@ -58,6 +68,13 @@
     let scopeQuestionManuallyEdited = false;
     let currentClaims = [];
 
+    // Milestone 3B Multi-Tab & Evidence Bank State
+    let sessionInquiries = [];
+    let activeSessionId = null;
+    let claimResearchTabs = {};
+    let activeClaimTabId = {};
+    let selectedQuotes = {};
+
     // Research action state tracking to prevent stale overwrites and duplicate runs
     let activeResearchSeq = 0;
     let activeResearchClaimId = null;
@@ -69,6 +86,7 @@
         // 2. Clear loading states
         setLoading(false);
         setClarificationLoading(false);
+        hideLoadingProgress();
         // 3. Invalidate active research ownership
         activeResearchSeq++;
         activeResearchClaimId = null;
@@ -174,6 +192,71 @@
         }
     }
 
+    // --- Loading Progress Banner & Sticky Bar (Milestone 3B) ---
+    function updateStickyInquiryBar(text) {
+        if (!stickyInquiryBar || !stickyInquiryText) return;
+        const clean = (text || "").trim();
+        if (clean) {
+            stickyInquiryText.textContent = clean;
+            stickyInquiryBar.classList.remove("hidden");
+        } else {
+            stickyInquiryBar.classList.add("hidden");
+        }
+    }
+
+    if (btnStickyEdit) {
+        btnStickyEdit.addEventListener("click", () => {
+            if (scopeQuestionInput && confirmedScopeCard && !confirmedScopeCard.classList.contains("hidden")) {
+                confirmedScopeCard.scrollIntoView({ behavior: "smooth", block: "center" });
+                scopeQuestionInput.focus();
+            } else if (clarificationSection && !clarificationSection.classList.contains("hidden")) {
+                clarificationSection.scrollIntoView({ behavior: "smooth", block: "start" });
+            } else if (inputText) {
+                inputText.scrollIntoView({ behavior: "smooth", block: "center" });
+                inputText.focus();
+            }
+        });
+    }
+
+    function buildTextFragmentUrl(sourceUrl, quoteText) {
+        if (!sourceUrl || typeof sourceUrl !== "string") return "";
+        if (!quoteText || typeof quoteText !== "string") return sourceUrl;
+
+        const cleanBase = sourceUrl.split("#")[0];
+        const normalized = quoteText.replace(/[\r\n\t]+/g, " ").replace(/^["']|["']$/g, "").trim();
+        const words = normalized.split(/\s+/).filter(Boolean);
+        if (words.length === 0) return cleanBase;
+
+        let fragment = "";
+        if (words.length <= 8) {
+            fragment = encodeURIComponent(words.join(" "));
+        } else {
+            const startWords = encodeURIComponent(words.slice(0, 6).join(" "));
+            const endWords = encodeURIComponent(words.slice(-6).join(" "));
+            fragment = `${startWords},${endWords}`;
+        }
+        return `${cleanBase}#:~:text=${fragment}`;
+    }
+
+    function showLoadingProgress(message) {
+        const banner = document.getElementById("loading-progress-banner");
+        const msgEl = document.getElementById("loading-progress-message");
+        if (banner && msgEl) {
+            msgEl.textContent = message;
+            banner.classList.remove("hidden");
+        }
+        if (stickyInquiryBar) {
+            stickyInquiryBar.classList.remove("hidden");
+        }
+    }
+
+    function hideLoadingProgress() {
+        const banner = document.getElementById("loading-progress-banner");
+        if (banner) {
+            banner.classList.add("hidden");
+        }
+    }
+
     // --- Safe Link Validator ---
     function isSafeHttpUrl(urlStr) {
         if (!urlStr || typeof urlStr !== "string") return false;
@@ -192,6 +275,16 @@
         currentClarificationData = data;
         const staleBanner = document.getElementById("claims-outdated-banner");
         if (staleBanner) staleBanner.remove();
+
+        if (activeSessionId) {
+            const sess = sessionInquiries.find(s => s.id === activeSessionId);
+            if (sess) {
+                sess.data = data;
+                sess.isClarification = true;
+                sess.clarificationExchanges = clarificationExchanges;
+            }
+            renderSessionTabs();
+        }
 
         resultsSection.classList.add("hidden");
         if (clarificationSection) {
@@ -251,6 +344,7 @@
         });
 
         setClarificationLoading(true);
+        showLoadingProgress("Updating inquiry scope…");
 
         const nextRound = currentClarificationData.round_index + 1;
         const body = {
@@ -303,6 +397,7 @@
         } finally {
             if (seq === currentSubmissionSeq) {
                 setClarificationLoading(false);
+                hideLoadingProgress();
             }
         }
     }
@@ -389,6 +484,17 @@
             confirmedScopeCard.classList.remove("hidden");
         }
 
+        if (activeSessionId) {
+            const sess = sessionInquiries.find(s => s.id === activeSessionId);
+            if (sess) {
+                sess.data = data;
+                sess.isClarification = false;
+                sess.claims = claims;
+                sess.scopeQuestion = currentConfirmedScopeQuestion;
+            }
+            renderSessionTabs();
+        }
+
         // Status line
         resultsStatus.textContent =
             count === 0
@@ -423,10 +529,14 @@
 
             const typeSpan = document.createElement("span");
             const isFactual = claim.claim_type === "factual";
-            typeSpan.className = `claim-type-tag ${isFactual ? "factual checkable-claim" : claim.claim_type}`;
+            const isCausal = claim.claim_type === "causal";
+            typeSpan.className = `claim-type-tag ${isFactual ? "factual checkable-claim" : isCausal ? "causal checkable-claim" : claim.claim_type}`;
             if (isFactual) {
                 typeSpan.textContent = "Checkable claim";
                 typeSpan.title = "Checkable claim: A statement asserting a verifiable fact. This is a classification, not a verified finding.";
+            } else if (isCausal) {
+                typeSpan.textContent = "Checkable claim (causal)";
+                typeSpan.title = "Checkable claim (causal): A statement asserting a causal link. This is a classification, not a verified finding.";
             } else {
                 typeSpan.textContent = claim.claim_type;
             }
@@ -505,7 +615,7 @@
     }
 
     // --- Research action logic ---
-    async function executeResearch(claim, button, card) {
+    async function executeResearch(claim, button, card, customQueryText = null) {
         // Prevent duplicate clicks if this claim or another research is already active
         if (activeResearchClaimId === claim.id) {
             return;
@@ -534,10 +644,24 @@
         loadingIndicator.appendChild(loadText);
         container.appendChild(loadingIndicator);
 
-        const claims = currentClaims || [];
-        const claimText = (claims.length > 1 && !scopeQuestionManuallyEdited)
-            ? (claim.normalized_assertion || claim.original_wording)
-            : (currentConfirmedScopeQuestion || claim.normalized_assertion || claim.original_wording);
+        showLoadingProgress("Searching sources, extracting verbatim quotes, and analyzing how they fit your inquiry…");
+
+        let claimText = "";
+        if (customQueryText) {
+            claimText = customQueryText;
+            currentConfirmedScopeQuestion = customQueryText;
+            scopeQuestionManuallyEdited = true;
+            if (scopeQuestionInput) {
+                scopeQuestionInput.value = customQueryText;
+            }
+        } else {
+            const claims = currentClaims || [];
+            claimText = (claims.length > 1 && !scopeQuestionManuallyEdited)
+                ? (claim.normalized_assertion || claim.original_wording)
+                : (currentConfirmedScopeQuestion || claim.normalized_assertion || claim.original_wording);
+        }
+
+        updateStickyInquiryBar(claimText);
 
         const payload = {
             submission_id: currentSubmissionId || "adhoc_submission",
@@ -547,6 +671,7 @@
             explicit_location: claim.explicit_location,
             explicit_date: claim.explicit_date,
             source_url: currentSourceUrl,
+            override_query: customQueryText || null,
         };
 
         try {
@@ -581,11 +706,51 @@
                 return;
             }
 
-            renderResearchResults(container, data);
+            // Milestone 3B Multi-Tab: Append new run rather than wiping previous runs
+            if (!claimResearchTabs[claim.id]) {
+                claimResearchTabs[claim.id] = [];
+            }
+            const runs = claimResearchTabs[claim.id];
+            let tabTitle = "";
+            if (runs.length === 0) {
+                tabTitle = "Tab 1: Initial Inquiry";
+            } else {
+                let qDisplay = (customQueryText || claimText).trim();
+                if (qDisplay.length > 24) {
+                    qDisplay = qDisplay.slice(0, 22) + "…";
+                }
+                tabTitle = `Tab ${runs.length + 1}: ${qDisplay}`;
+            }
+
+            const newRun = {
+                id: "run_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+                title: tabTitle,
+                query: customQueryText || claimText,
+                data: data,
+                timestamp: Date.now(),
+            };
+            runs.push(newRun);
+            activeClaimTabId[claim.id] = newRun.id;
+
+            // Auto-select substantive candidate quotes in selectedQuotes
+            (data.candidate_passages || []).forEach(p => {
+                const qKey = getQuoteKey(claim.id, p);
+                if (selectedQuotes[qKey] === undefined) {
+                    selectedQuotes[qKey] = {
+                        checked: true,
+                        passage: p,
+                        claimId: claim.id,
+                    };
+                }
+            });
+
+            updateActiveSessionState();
+            renderClaimResearchTabsWorkspace(container, claim, button, card);
         } catch (err) {
             if (researchSeq !== activeResearchSeq) return;
             showResearchError(container, "Network error", "Could not complete research request. Is the server running?");
         } finally {
+            hideLoadingProgress();
             if (researchSeq === activeResearchSeq && activeResearchClaimId === claim.id) {
                 activeResearchClaimId = null;
             }
@@ -622,22 +787,706 @@
         container.appendChild(errBox);
     }
 
-    // --- Render Research Results (Search Hits & Retrieved Passages) ---
-    function renderResearchResults(container, data) {
+    // --- Quote and Markdown Helpers ---
+    function getQuoteKey(claimId, p) {
+        return `${claimId}_${p.source_url}_${p.start_offset}_${p.end_offset}`;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return "";
+        return String(str)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function formatInline(text) {
+        let t = escapeHtml(text);
+        t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+        t = t.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+        t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+        return t;
+    }
+
+    function renderMarkdown(md) {
+        if (!md) return "";
+        const lines = md.split("\n");
+        let html = "";
+        let inList = false;
+        let listType = null;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+
+            if (line.startsWith("#### ")) {
+                if (inList) { html += listType === "ol" ? "</ol>" : "</ul>"; inList = false; }
+                html += `<h4>${escapeHtml(line.slice(5))}</h4>`;
+                continue;
+            }
+            if (line.startsWith("### ")) {
+                if (inList) { html += listType === "ol" ? "</ol>" : "</ul>"; inList = false; }
+                html += `<h3>${escapeHtml(line.slice(4))}</h3>`;
+                continue;
+            }
+            if (line.startsWith("## ")) {
+                if (inList) { html += listType === "ol" ? "</ol>" : "</ul>"; inList = false; }
+                html += `<h2>${escapeHtml(line.slice(3))}</h2>`;
+                continue;
+            }
+            if (line.startsWith("# ")) {
+                if (inList) { html += listType === "ol" ? "</ol>" : "</ul>"; inList = false; }
+                html += `<h1>${escapeHtml(line.slice(2))}</h1>`;
+                continue;
+            }
+            if (line.trim() === "---" || line.trim() === "***") {
+                if (inList) { html += listType === "ol" ? "</ol>" : "</ul>"; inList = false; }
+                html += "<hr>";
+                continue;
+            }
+            if (line.startsWith("> ")) {
+                if (inList) { html += listType === "ol" ? "</ol>" : "</ul>"; inList = false; }
+                html += `<blockquote>${formatInline(line.slice(2))}</blockquote>`;
+                continue;
+            }
+            if (/^[-*]\s+/.test(line)) {
+                if (!inList || listType !== "ul") {
+                    if (inList) html += listType === "ol" ? "</ol>" : "</ul>";
+                    html += "<ul>";
+                    inList = true;
+                    listType = "ul";
+                }
+                html += `<li>${formatInline(line.replace(/^[-*]\s+/, ""))}</li>`;
+                continue;
+            }
+            if (/^\d+\.\s+/.test(line)) {
+                if (!inList || listType !== "ol") {
+                    if (inList) html += listType === "ol" ? "</ol>" : "</ul>";
+                    html += "<ol>";
+                    inList = true;
+                    listType = "ol";
+                }
+                html += `<li>${formatInline(line.replace(/^\d+\.\s+/, ""))}</li>`;
+                continue;
+            }
+            if (inList && line.trim() === "") {
+                html += listType === "ol" ? "</ol>" : "</ul>";
+                inList = false;
+                continue;
+            }
+            if (line.trim()) {
+                if (inList) { html += listType === "ol" ? "</ol>" : "</ul>"; inList = false; }
+                html += `<p>${formatInline(line)}</p>`;
+            }
+        }
+        if (inList) {
+            html += listType === "ol" ? "</ol>" : "</ul>";
+        }
+        return html;
+    }
+
+    function createSectionCheckbox(id, labelText, defaultChecked) {
+        const wrapper = document.createElement("label");
+        wrapper.className = "report-checkbox-label";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.id = id;
+        input.checked = defaultChecked;
+        wrapper.appendChild(input);
+        wrapper.appendChild(document.createTextNode(labelText));
+        return { wrapper, input };
+    }
+
+    function updateAllEvidenceCounters() {
+        const checked = Object.values(selectedQuotes).filter(item => item && item.checked);
+        const count = checked.length;
+        const uniqueSources = new Set(checked.map(item => item.passage.source_url)).size;
+        const text = `${count} quote${count === 1 ? "" : "s"} from ${uniqueSources} source${uniqueSources === 1 ? "" : "s"} selected across tabs`;
+        document.querySelectorAll(".evidence-counter-badge").forEach(el => {
+            el.textContent = text;
+        });
+    }
+
+    // --- Report & Evidence Bank Studio Panel Builder ---
+    function renderReportBuilderPanel(claim, data) {
+        const reportPanel = document.createElement("div");
+        reportPanel.className = "report-builder-panel";
+
+        // Header with title and counter
+        const header = document.createElement("div");
+        header.className = "report-builder-header";
+
+        const titleWrap = document.createElement("div");
+        titleWrap.className = "report-builder-title";
+        titleWrap.innerHTML = `<span aria-hidden="true">📄</span> Generate Page Report & Evidence Bank`;
+        header.appendChild(titleWrap);
+
+        const counterWrap = document.createElement("div");
+        counterWrap.className = "report-counter-wrap";
+
+        const counterBadge = document.createElement("span");
+        counterBadge.className = "evidence-counter-badge";
+        counterWrap.appendChild(counterBadge);
+
+        const selectAllBtn = document.createElement("button");
+        selectAllBtn.type = "button";
+        selectAllBtn.className = "btn-counter-toggle";
+        selectAllBtn.textContent = "Select All";
+        selectAllBtn.addEventListener("click", () => {
+            Object.keys(selectedQuotes).forEach(k => {
+                if (selectedQuotes[k]) selectedQuotes[k].checked = true;
+            });
+            document.querySelectorAll(".quote-select-checkbox").forEach(cb => { cb.checked = true; });
+            updateAllEvidenceCounters();
+            updateActiveSessionState();
+        });
+        counterWrap.appendChild(selectAllBtn);
+
+        const clearBtn = document.createElement("button");
+        clearBtn.type = "button";
+        clearBtn.className = "btn-counter-toggle";
+        clearBtn.textContent = "Clear";
+        clearBtn.addEventListener("click", () => {
+            Object.keys(selectedQuotes).forEach(k => {
+                if (selectedQuotes[k]) selectedQuotes[k].checked = false;
+            });
+            document.querySelectorAll(".quote-select-checkbox").forEach(cb => { cb.checked = false; });
+            updateAllEvidenceCounters();
+            updateActiveSessionState();
+        });
+        counterWrap.appendChild(clearBtn);
+
+        header.appendChild(counterWrap);
+        reportPanel.appendChild(header);
+
+        // Controls grid: Vibe Selector & Section Checkboxes
+        const controls = document.createElement("div");
+        controls.className = "report-builder-controls";
+
+        // Vibe Selector
+        const vibeGroup = document.createElement("div");
+        vibeGroup.className = "report-control-group";
+        const vibeLabel = document.createElement("label");
+        vibeLabel.className = "report-control-label";
+        vibeLabel.textContent = "Report Vibe / Style";
+        vibeGroup.appendChild(vibeLabel);
+
+        const vibeSelect = document.createElement("select");
+        vibeSelect.className = "report-vibe-select";
+        const vibes = [
+            { value: "objective_brief", label: "Objective Briefing — Concise, neutral executive overview" },
+            { value: "cornell_study", label: "Cornell Study Guide — Cues, key takeaways, and synthesis for learning" },
+            { value: "fact_check", label: "Fact-Check Breakdown — What the evidence supports, contradicts, or leaves unknown" },
+            { value: "deep_dive", label: "Topic Deep-Dive — Contextual narrative connecting all selected sources" },
+        ];
+        vibes.forEach(v => {
+            const opt = document.createElement("option");
+            opt.value = v.value;
+            opt.textContent = v.label;
+            vibeSelect.appendChild(opt);
+        });
+        vibeGroup.appendChild(vibeSelect);
+        controls.appendChild(vibeGroup);
+
+        // Section checkboxes
+        const sectionsGroup = document.createElement("div");
+        sectionsGroup.className = "report-control-group";
+        const sectionsLabel = document.createElement("label");
+        sectionsLabel.className = "report-control-label";
+        sectionsLabel.textContent = "Included Report Sections";
+        sectionsGroup.appendChild(sectionsLabel);
+
+        const sectionsGrid = document.createElement("div");
+        sectionsGrid.className = "report-sections-grid";
+
+        const chkSummary = createSectionCheckbox("include_summary", "Topic & Inquiry Synthesis", true);
+        const chkEvidenceBank = createSectionCheckbox("include_evidence_bank", "Structured Evidence Bank", true);
+        const chkWorksCited = createSectionCheckbox("include_works_cited", "Works Cited / Bibliography", true);
+        const chkOpenQuestions = createSectionCheckbox("include_open_questions", "Unresolved Next Questions", true);
+
+        sectionsGrid.appendChild(chkSummary.wrapper);
+        sectionsGrid.appendChild(chkEvidenceBank.wrapper);
+        sectionsGrid.appendChild(chkWorksCited.wrapper);
+        sectionsGrid.appendChild(chkOpenQuestions.wrapper);
+
+        sectionsGroup.appendChild(sectionsGrid);
+        controls.appendChild(sectionsGroup);
+        reportPanel.appendChild(controls);
+
+        // Custom focus input
+        const focusGroup = document.createElement("div");
+        focusGroup.className = "report-control-group";
+        const focusLabel = document.createElement("label");
+        focusLabel.className = "report-control-label";
+        focusLabel.textContent = "Custom Focus / Angle (Optional)";
+        focusGroup.appendChild(focusLabel);
+
+        const focusInput = document.createElement("input");
+        focusInput.type = "text";
+        focusInput.className = "report-focus-input";
+        focusInput.placeholder = "Cater report to a specific question, angle, or audience…";
+        focusGroup.appendChild(focusInput);
+        reportPanel.appendChild(focusGroup);
+
+        // Generate Button
+        const generateBtn = document.createElement("button");
+        generateBtn.type = "button";
+        generateBtn.className = "btn-generate-report";
+        generateBtn.innerHTML = `<span>Synthesize Custom Report & Evidence Bank</span> <span aria-hidden="true">&rarr;</span>`;
+        reportPanel.appendChild(generateBtn);
+
+        // Output Card
+        const outputCard = document.createElement("div");
+        outputCard.className = "report-output-card hidden";
+
+        const outputActions = document.createElement("div");
+        outputActions.className = "report-output-actions";
+
+        const copyBtn = document.createElement("button");
+        copyBtn.type = "button";
+        copyBtn.className = "btn-report-action btn-copy-report";
+        copyBtn.textContent = "Copy Markdown";
+        outputActions.appendChild(copyBtn);
+
+        const printBtn = document.createElement("button");
+        printBtn.type = "button";
+        printBtn.className = "btn-report-action btn-print-report";
+        printBtn.textContent = "Print / Save PDF";
+        printBtn.addEventListener("click", () => {
+            window.print();
+        });
+        outputActions.appendChild(printBtn);
+
+        outputCard.appendChild(outputActions);
+
+        const outputBody = document.createElement("div");
+        outputBody.className = "report-content-body";
+        outputCard.appendChild(outputBody);
+
+        reportPanel.appendChild(outputCard);
+
+        let lastGeneratedMarkdown = "";
+
+        copyBtn.addEventListener("click", async () => {
+            if (!lastGeneratedMarkdown) return;
+            try {
+                await navigator.clipboard.writeText(lastGeneratedMarkdown);
+            } catch (_) {}
+            copyBtn.textContent = "Copied!";
+            setTimeout(() => { copyBtn.textContent = "Copy Markdown"; }, 1500);
+        });
+
+        generateBtn.addEventListener("click", async () => {
+            const checkedItems = Object.values(selectedQuotes).filter(item => item && item.checked);
+            if (checkedItems.length === 0) {
+                alert("Please select at least one quote to include in the report.");
+                return;
+            }
+
+            generateBtn.disabled = true;
+            generateBtn.textContent = "Synthesizing Report…";
+
+            const reqBody = {
+                inquiry_title: currentConfirmedScopeQuestion || claim.normalized_assertion || claim.original_wording || "Investigation Findings",
+                report_vibe: vibeSelect.value,
+                include_summary: chkSummary.input.checked,
+                include_evidence_bank: chkEvidenceBank.input.checked,
+                include_works_cited: chkWorksCited.input.checked,
+                include_open_questions: chkOpenQuestions.input.checked,
+                custom_focus: focusInput.value.trim() || null,
+                selected_passages: checkedItems.map(item => ({
+                    passage_id: item.passage.passage_id,
+                    exact_passage: item.passage.exact_passage,
+                    context_surrounding: item.passage.context_surrounding,
+                    source_url: item.passage.source_url,
+                    relevance_explanation: item.passage.relevance_explanation || item.passage.relevance_note,
+                    publication_date: item.passage.publication_date,
+                    updated_date: item.passage.updated_date,
+                    retrieval_timestamp: item.passage.retrieval_timestamp,
+                })),
+                sources: (data.retrieved_sources || []).map(s => ({
+                    url: s.final_url || s.initial_url,
+                    domain: s.domain,
+                    title: s.title,
+                    publication_date: s.publication_date,
+                    retrieval_date: s.retrieval_timestamp,
+                    status: s.status,
+                })),
+            };
+
+            try {
+                const res = await fetch("/api/report", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(reqBody),
+                });
+                const repData = await res.json();
+                if (!res.ok) {
+                    alert(repData.detail || "Report generation failed.");
+                    return;
+                }
+                lastGeneratedMarkdown = repData.markdown_content;
+                outputBody.innerHTML = renderMarkdown(repData.markdown_content);
+                outputCard.classList.remove("hidden");
+                outputCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            } catch (err) {
+                alert("Could not connect to report server.");
+            } finally {
+                generateBtn.disabled = false;
+                generateBtn.innerHTML = `<span>Synthesize Custom Report & Evidence Bank</span> <span aria-hidden="true">&rarr;</span>`;
+            }
+        });
+
+        return reportPanel;
+    }
+
+    // --- Render Research Results (Milestone 3B Cornell Notes Layout) ---
+    function renderResearchResults(container, data, claim, button, card) {
         container.innerHTML = "";
 
         const panel = document.createElement("div");
         panel.className = "claim-research-panel";
 
-        // 1. Summary Bar
-        const summaryBar = document.createElement("div");
-        summaryBar.className = "research-summary-bar";
+        // 1. Top Summary Header (Full Width): "How the Evidence Fits Your Inquiry" displaying inquiry_synthesis
+        const synthesisCard = document.createElement("div");
+        synthesisCard.className = "inquiry-synthesis-card";
 
-        const statsRow = document.createElement("div");
-        statsRow.style.fontWeight = "600";
-        statsRow.style.color = "var(--text-primary)";
-        statsRow.textContent = data.status_message;
-        summaryBar.appendChild(statsRow);
+        const synthTitle = document.createElement("div");
+        synthTitle.className = "synthesis-card-title";
+        synthTitle.innerHTML = `<span aria-hidden="true">✦</span> How the Evidence Fits Your Inquiry`;
+        synthesisCard.appendChild(synthTitle);
+
+        const synthText = document.createElement("p");
+        synthText.className = "inquiry-synthesis-text";
+        synthText.textContent = data.inquiry_synthesis || "Retrieved verbatim passages addressing terms in the inquiry. Review the extracted quotes below.";
+        synthesisCard.appendChild(synthText);
+
+        panel.appendChild(synthesisCard);
+
+        // 2. Two-Column Cornell Notes Body (.cornell-notes-grid)
+        const passages = (data.candidate_passages || []).slice(0, 5);
+        if (passages.length === 0) {
+            const noPassagesBox = document.createElement("div");
+            noPassagesBox.className = "passage-box";
+            const noPassagesMsg = document.createElement("p");
+            noPassagesMsg.className = "hit-snippet";
+            noPassagesMsg.style.margin = "0";
+            noPassagesMsg.textContent = "No substantive candidate quotes matching the inquiry were identified in retrieved pages.";
+            noPassagesBox.appendChild(noPassagesMsg);
+            panel.appendChild(noPassagesBox);
+        } else {
+            const cornellGrid = document.createElement("div");
+            cornellGrid.className = "cornell-notes-grid";
+
+            // Two-column header row
+            const headerRow = document.createElement("div");
+            headerRow.className = "cornell-notes-header-row";
+
+            const cueHead = document.createElement("div");
+            cueHead.className = "cornell-col-header";
+            cueHead.textContent = "KEY CUES & SOURCES";
+
+            const quoteHead = document.createElement("div");
+            quoteHead.className = "cornell-col-header";
+            quoteHead.textContent = "SUPPORTING VERBATIM QUOTES";
+
+            headerRow.appendChild(cueHead);
+            headerRow.appendChild(quoteHead);
+            cornellGrid.appendChild(headerRow);
+
+            passages.forEach((p, idx) => {
+                const bulletIndex = idx + 1;
+                const quoteKey = getQuoteKey(claim.id, p);
+
+                let domainDisplay = p.source_url;
+                try {
+                    const parsed = new URL(p.source_url);
+                    domainDisplay = parsed.hostname.replace(/^www\./, "");
+                } catch (_) {}
+
+                const pairRow = document.createElement("div");
+                pairRow.className = "cornell-pair-row";
+
+                // --- Left Column: Cue Card ---
+                const cueCell = document.createElement("div");
+                cueCell.className = "cornell-cue-cell";
+
+                const cueCard = document.createElement("div");
+                cueCard.className = "cornell-cue-card";
+
+                const cueTop = document.createElement("div");
+                cueTop.className = "cue-card-top";
+
+                const cueBadge = document.createElement("span");
+                cueBadge.className = "cue-index-badge";
+                cueBadge.textContent = `[${bulletIndex}]`;
+                cueTop.appendChild(cueBadge);
+
+                const cueLabel = document.createElement("span");
+                cueLabel.className = "cue-label";
+                cueLabel.textContent = "How This Fits";
+                cueTop.appendChild(cueLabel);
+                cueCard.appendChild(cueTop);
+
+                const cueFit = document.createElement("div");
+                cueFit.className = "cue-fit-text";
+                cueFit.textContent = p.relevance_explanation || p.relevance_note || "Directly relevant context quote.";
+                cueCard.appendChild(cueFit);
+
+                const cueMeta = document.createElement("div");
+                cueMeta.className = "cue-source-meta";
+
+                const cueDomain = document.createElement("a");
+                cueDomain.className = "cue-domain-badge";
+                cueDomain.textContent = domainDisplay;
+                if (isSafeHttpUrl(p.source_url)) {
+                    cueDomain.href = p.source_url;
+                    cueDomain.target = "_blank";
+                    cueDomain.rel = "noopener noreferrer";
+                }
+                cueMeta.appendChild(cueDomain);
+
+                const cueDate = document.createElement("span");
+                cueDate.className = "cue-date-badge";
+                if (p.publication_date) {
+                    let dText = `Published: ${p.publication_date}`;
+                    if (p.updated_date && p.updated_date !== p.publication_date) {
+                        dText += ` (Updated: ${p.updated_date})`;
+                    }
+                    cueDate.textContent = dText;
+                } else {
+                    cueDate.textContent = "Publication date: Unknown";
+                }
+                cueMeta.appendChild(cueDate);
+
+                cueCard.appendChild(cueMeta);
+                cueCell.appendChild(cueCard);
+                pairRow.appendChild(cueCell);
+
+                // --- Right Column: Quote Bullet ---
+                const quoteCell = document.createElement("div");
+                quoteCell.className = "cornell-quote-cell";
+
+                const quoteBullet = document.createElement("div");
+                quoteBullet.className = "cornell-quote-bullet";
+
+                const bulletHeader = document.createElement("div");
+                bulletHeader.className = "quote-bullet-header";
+
+                const titleWrap = document.createElement("div");
+                titleWrap.className = "quote-bullet-title-wrap";
+
+                const quoteBadge = document.createElement("span");
+                quoteBadge.className = "quote-index-badge";
+                quoteBadge.textContent = `[${bulletIndex}]`;
+                titleWrap.appendChild(quoteBadge);
+
+                const inlineDomain = document.createElement("span");
+                inlineDomain.className = "quote-source-domain-inline";
+                inlineDomain.textContent = domainDisplay;
+                titleWrap.appendChild(inlineDomain);
+
+                bulletHeader.appendChild(titleWrap);
+
+                // "☑ Include in Report" Checkbox
+                const includeLabel = document.createElement("label");
+                includeLabel.className = "quote-include-label";
+
+                const quoteCheckbox = document.createElement("input");
+                quoteCheckbox.type = "checkbox";
+                quoteCheckbox.className = "quote-select-checkbox";
+                const isChecked = selectedQuotes[quoteKey] ? selectedQuotes[quoteKey].checked : true;
+                quoteCheckbox.checked = isChecked;
+
+                if (!selectedQuotes[quoteKey]) {
+                    selectedQuotes[quoteKey] = {
+                        checked: true,
+                        passage: p,
+                        claimId: claim.id,
+                    };
+                }
+
+                quoteCheckbox.addEventListener("change", () => {
+                    if (selectedQuotes[quoteKey]) {
+                        selectedQuotes[quoteKey].checked = quoteCheckbox.checked;
+                    }
+                    updateAllEvidenceCounters();
+                    updateActiveSessionState();
+                });
+
+                includeLabel.appendChild(quoteCheckbox);
+                includeLabel.appendChild(document.createTextNode("Include in Report"));
+                bulletHeader.appendChild(includeLabel);
+
+                quoteBullet.appendChild(bulletHeader);
+
+                // Deep fragment URL
+                const deepUrl = buildTextFragmentUrl(p.source_url, p.exact_passage);
+
+                // Verbatim quote element (clickable deep link)
+                const quoteText = document.createElement("a");
+                quoteText.className = "focused-quote-text";
+                quoteText.textContent = `"${p.exact_passage}"`;
+                if (isSafeHttpUrl(deepUrl)) {
+                    quoteText.href = deepUrl;
+                    quoteText.target = "_blank";
+                    quoteText.rel = "noopener noreferrer";
+                    quoteText.title = "Click to open source page and scroll to highlighted text";
+                }
+                quoteBullet.appendChild(quoteText);
+
+                // Actions row (More button + Find exact line link)
+                const actionsRow = document.createElement("div");
+                actionsRow.className = "quote-actions-row";
+
+                let moreBtn = null;
+                let contextContainer = null;
+                const hasExtraContext = p.context_surrounding && p.context_surrounding.trim() !== p.exact_passage.trim();
+
+                if (hasExtraContext) {
+                    moreBtn = document.createElement("button");
+                    moreBtn.type = "button";
+                    moreBtn.className = "btn-more-toggle";
+                    moreBtn.textContent = "More ▾";
+
+                    contextContainer = document.createElement("div");
+                    contextContainer.className = "full-context-container hidden";
+                    contextContainer.textContent = p.context_surrounding;
+
+                    moreBtn.addEventListener("click", () => {
+                        const isHidden = contextContainer.classList.contains("hidden");
+                        contextContainer.classList.toggle("hidden", !isHidden);
+                        moreBtn.textContent = isHidden ? "Less ▴" : "More ▾";
+                    });
+
+                    actionsRow.appendChild(moreBtn);
+                } else {
+                    const spacer = document.createElement("span");
+                    actionsRow.appendChild(spacer);
+                }
+
+                const findExactLink = document.createElement("a");
+                findExactLink.className = "link-find-exact";
+                findExactLink.href = isSafeHttpUrl(deepUrl) ? deepUrl : (isSafeHttpUrl(p.source_url) ? p.source_url : "#");
+                findExactLink.target = "_blank";
+                findExactLink.rel = "noopener noreferrer";
+                findExactLink.innerHTML = `Find exact line on website <span aria-hidden="true">&nearr;</span>`;
+                actionsRow.appendChild(findExactLink);
+
+                quoteBullet.appendChild(actionsRow);
+
+                if (contextContainer) {
+                    quoteBullet.appendChild(contextContainer);
+                }
+
+                quoteCell.appendChild(quoteBullet);
+                pairRow.appendChild(quoteCell);
+
+                cornellGrid.appendChild(pairRow);
+            });
+
+            panel.appendChild(cornellGrid);
+        }
+
+        // Report & Evidence Bank Studio Panel
+        const reportBuilderPanel = renderReportBuilderPanel(claim, data);
+        panel.appendChild(reportBuilderPanel);
+
+
+        // 3. Actionable Explore Further
+        const nextQueries = data.suggested_next_queries || [];
+        if (nextQueries.length > 0) {
+            const exploreCard = document.createElement("div");
+            exploreCard.className = "explore-further-card";
+
+            const exploreTitle = document.createElement("div");
+            exploreTitle.className = "explore-title";
+            exploreTitle.innerHTML = `<span aria-hidden="true">🔍</span> Explore Further`;
+            exploreCard.appendChild(exploreTitle);
+
+            const queriesList = document.createElement("div");
+            queriesList.className = "explore-queries-list";
+
+            nextQueries.forEach((q) => {
+                const itemRow = document.createElement("div");
+                itemRow.className = "explore-item-row";
+
+                const chipBtn = document.createElement("button");
+                chipBtn.type = "button";
+                chipBtn.className = "explore-query-chip btn-explore-query";
+                chipBtn.title = "Click to immediately research this query in-place";
+
+                const qSpan = document.createElement("span");
+                qSpan.textContent = q;
+                chipBtn.appendChild(qSpan);
+
+                const iconSpan = document.createElement("span");
+                iconSpan.className = "explore-query-icon";
+                iconSpan.innerHTML = "&rarr;";
+                chipBtn.appendChild(iconSpan);
+
+                chipBtn.addEventListener("click", () => {
+                    if (scopeQuestionInput) {
+                        scopeQuestionInput.value = q;
+                    }
+                    currentConfirmedScopeQuestion = q;
+                    scopeQuestionManuallyEdited = true;
+                    updateStickyInquiryBar(q);
+                    if (card) {
+                        card.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }
+                    if (claim && button && card) {
+                        executeResearch(claim, button, card, q);
+                    }
+                });
+                itemRow.appendChild(chipBtn);
+
+                const newInqBtn = document.createElement("button");
+                newInqBtn.type = "button";
+                newInqBtn.className = "btn-new-inquiry";
+                newInqBtn.title = "Load this query into statement input to start fresh inquiry";
+                newInqBtn.innerHTML = `New Inquiry <span aria-hidden="true">&nearr;</span>`;
+
+                newInqBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    if (inputText) {
+                        inputText.value = q;
+                        inputText.dispatchEvent(new Event("input", { bubbles: true }));
+                        inputText.scrollIntoView({ behavior: "smooth", block: "center" });
+                        inputText.focus();
+                    }
+                });
+                itemRow.appendChild(newInqBtn);
+
+                queriesList.appendChild(itemRow);
+            });
+
+            exploreCard.appendChild(queriesList);
+            panel.appendChild(exploreCard);
+        }
+
+        // 4. Collapsed Technical Audit Drawer
+        const auditDrawer = document.createElement("details");
+        auditDrawer.className = "technical-audit-drawer";
+
+        const retrievedCount = (data.retrieved_sources || []).filter(s => s.status === "retrieved").length;
+        const totalSources = (data.retrieved_sources || []).length;
+        const hitsCount = (data.search_hits || []).length;
+
+        const auditSummary = document.createElement("summary");
+        auditSummary.className = "audit-summary-header";
+        auditSummary.innerHTML = `<span>Technical Audit & Raw Search Data (${hitsCount} search hits, ${retrievedCount}/${totalSources} pages fetched, ${data.completed_in_seconds}s)</span> <span>▾</span>`;
+        auditDrawer.appendChild(auditSummary);
+
+        const auditContent = document.createElement("div");
+        auditContent.className = "audit-drawer-content";
+
+        // Summary Bar & Queries
+        const auditStatus = document.createElement("div");
+        auditStatus.style.fontWeight = "600";
+        auditStatus.textContent = data.status_message;
+        auditContent.appendChild(auditStatus);
 
         if (data.search_failure_message) {
             const failBanner = document.createElement("div");
@@ -645,12 +1494,8 @@
             failBanner.style.borderColor = "var(--error-border)";
             failBanner.style.background = "var(--error-bg)";
             failBanner.style.color = "var(--error-text)";
-            failBanner.style.marginTop = "0.5rem";
-            const strong = document.createElement("strong");
-            strong.textContent = "Search provider unavailable: ";
-            failBanner.appendChild(strong);
-            failBanner.appendChild(document.createTextNode(data.search_failure_message));
-            summaryBar.appendChild(failBanner);
+            failBanner.textContent = `Search provider notice: ${data.search_failure_message}`;
+            auditContent.appendChild(failBanner);
         }
 
         if (data.queries_used && data.queries_used.length > 0) {
@@ -661,7 +1506,7 @@
             queryRow.style.alignItems = "center";
 
             const qLabel = document.createElement("span");
-            qLabel.textContent = "Queries:";
+            qLabel.textContent = "Executed Search Queries:";
             queryRow.appendChild(qLabel);
 
             data.queries_used.forEach((q) => {
@@ -670,22 +1515,20 @@
                 chip.textContent = `"${q.query_text}" (${q.query_intent})`;
                 queryRow.appendChild(chip);
             });
-            summaryBar.appendChild(queryRow);
+            auditContent.appendChild(queryRow);
         }
-        panel.appendChild(summaryBar);
 
-        // 2. Search Hits (Unexamined Snippets)
+        // Search Hits (Unexamined Snippets)
         const hitsSection = document.createElement("div");
         hitsSection.className = "search-hits-group";
-
         const hitsLabel = document.createElement("div");
         hitsLabel.className = "section-label";
-        hitsLabel.textContent = "Search Engine Hits (Unexamined Candidate Links)";
+        hitsLabel.textContent = "Search Engine Results (Unexamined Previews — Not Full Evidence)";
         hitsSection.appendChild(hitsLabel);
 
         const snippetNotice = document.createElement("div");
         snippetNotice.className = "notice-banner notice-snippet-only";
-        snippetNotice.textContent = "A search snippet only indicates an external index match. Snippets are unverified candidate links and NEVER count as examined evidence.";
+        snippetNotice.textContent = "Search snippets are unexamined candidate previews and NEVER count as verified evidence.";
         hitsSection.appendChild(snippetNotice);
 
         const hitsList = document.createElement("div");
@@ -695,11 +1538,7 @@
         if (!data.search_hits || data.search_hits.length === 0) {
             const noHits = document.createElement("p");
             noHits.className = "hit-snippet";
-            if (data.search_failure_message) {
-                noHits.textContent = `Search unavailable: ${data.search_failure_message}`;
-            } else {
-                noHits.textContent = "No search hits returned by search provider.";
-            }
+            noHits.textContent = data.search_failure_message ? `Search unavailable: ${data.search_failure_message}` : "No search hits returned by search provider.";
             hitsList.appendChild(noHits);
         } else {
             data.search_hits.forEach((hit) => {
@@ -716,8 +1555,6 @@
                     link.href = hit.url;
                     link.target = "_blank";
                     link.rel = "noopener noreferrer";
-                } else {
-                    link.href = "#";
                 }
                 header.appendChild(link);
 
@@ -738,184 +1575,259 @@
             });
         }
         hitsSection.appendChild(hitsList);
-        panel.appendChild(hitsSection);
+        auditContent.appendChild(hitsSection);
 
-        // 3. Retrieved Candidate Sources & Verbatim Passages
+        // Sources Technical Details (IPs, Bytes, Raw Decoded Inspector)
         const sourcesSection = document.createElement("div");
         sourcesSection.className = "retrieved-sources-group";
-
         const sourcesLabel = document.createElement("div");
         sourcesLabel.className = "section-label";
-        sourcesLabel.textContent = "Retrieved Sources & Candidate Passages";
+        sourcesLabel.textContent = "Source Retrieval & Network Audit";
         sourcesSection.appendChild(sourcesLabel);
-
-        const evidenceNotice = document.createElement("div");
-        evidenceNotice.className = "notice-banner notice-candidate-evidence";
-        evidenceNotice.textContent = "Candidate passages are exact verbatim excerpts from safely retrieved sources. (No supported/contradicted verdict is rendered in this milestone).";
-        sourcesSection.appendChild(evidenceNotice);
 
         const sourcesList = document.createElement("div");
         sourcesList.className = "sources-list";
         sourcesList.style.marginTop = "0.5rem";
 
-        if (!data.retrieved_sources || data.retrieved_sources.length === 0) {
-            const noSources = document.createElement("p");
-            noSources.className = "hit-snippet";
-            noSources.textContent = "No candidate pages were retrieved.";
-            sourcesList.appendChild(noSources);
-        } else {
-            data.retrieved_sources.forEach((src) => {
-                const card = document.createElement("div");
-                card.className = "source-card";
+        (data.retrieved_sources || []).forEach((src) => {
+            const card = document.createElement("div");
+            card.className = "source-card";
 
-                const header = document.createElement("div");
-                header.className = "source-header";
+            const header = document.createElement("div");
+            header.className = "source-header";
 
-                const displayUrl = src.final_url || src.initial_url;
-                const link = document.createElement("a");
-                link.className = "source-title";
-                link.textContent = displayUrl;
-                if (isSafeHttpUrl(displayUrl)) {
-                    link.href = displayUrl;
-                    link.target = "_blank";
-                    link.rel = "noopener noreferrer";
-                }
+            const displayUrl = src.final_url || src.initial_url;
+            const link = document.createElement("a");
+            link.className = "source-title";
+            link.textContent = displayUrl;
+            if (isSafeHttpUrl(displayUrl)) {
+                link.href = displayUrl;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+            }
+            header.appendChild(link);
 
-                const badge = document.createElement("span");
-                badge.className = "badge-tag";
+            const badge = document.createElement("span");
+            badge.className = "badge-tag";
+            if (src.status === "retrieved") {
+                badge.classList.add("badge-retrieved");
+                badge.textContent = `Retrieved (${src.http_status_code || 200})`;
+            } else if (src.status === "ssrf_blocked") {
+                badge.classList.add("badge-ssrf");
+                badge.textContent = "SSRF Blocked";
+            } else {
+                badge.classList.add("badge-inaccessible");
+                badge.textContent = `Inaccessible (${src.status})`;
+            }
+            header.appendChild(badge);
+            card.appendChild(header);
 
-                if (src.status === "retrieved") {
-                    badge.classList.add("badge-retrieved");
-                    badge.textContent = `Retrieved (${src.http_status_code || 200})`;
-                } else if (src.status === "ssrf_blocked") {
-                    badge.classList.add("badge-ssrf");
-                    badge.textContent = "SSRF Blocked";
-                } else {
-                    badge.classList.add("badge-inaccessible");
-                    badge.textContent = `Inaccessible (${src.status})`;
-                }
+            const metaRow = document.createElement("div");
+            metaRow.className = "source-meta-row";
+            if (src.resolved_ip) {
+                const ipSpan = document.createElement("span");
+                ipSpan.textContent = `IP: ${src.resolved_ip}`;
+                metaRow.appendChild(ipSpan);
+            }
+            if (src.response_size_bytes) {
+                const sizeSpan = document.createElement("span");
+                sizeSpan.textContent = `Size: ${(src.response_size_bytes / 1024).toFixed(1)} KB`;
+                metaRow.appendChild(sizeSpan);
+            }
+            if (src.redirect_count > 0) {
+                const redirSpan = document.createElement("span");
+                redirSpan.textContent = `Redirects: ${src.redirect_count}`;
+                metaRow.appendChild(redirSpan);
+            }
+            card.appendChild(metaRow);
 
-                header.appendChild(link);
-                header.appendChild(badge);
-                card.appendChild(header);
+            if (src.error_message) {
+                const errP = document.createElement("div");
+                errP.className = "source-error-msg";
+                errP.textContent = src.error_message;
+                card.appendChild(errP);
+            }
 
-                // Audit metadata row
-                const metaRow = document.createElement("div");
-                metaRow.className = "source-meta-row";
-                if (src.resolved_ip) {
-                    const ipSpan = document.createElement("span");
-                    ipSpan.textContent = `IP: ${src.resolved_ip}`;
-                    metaRow.appendChild(ipSpan);
-                }
-                if (src.response_size_bytes) {
-                    const sizeSpan = document.createElement("span");
-                    sizeSpan.textContent = `Size: ${(src.response_size_bytes / 1024).toFixed(1)} KB`;
-                    metaRow.appendChild(sizeSpan);
-                }
-                if (src.redirect_count > 0) {
-                    const redirSpan = document.createElement("span");
-                    redirSpan.textContent = `Redirects: ${src.redirect_count}`;
-                    metaRow.appendChild(redirSpan);
-                }
-                card.appendChild(metaRow);
+            // Raw page text inspector
+            if (src.extracted_text) {
+                const rawDetails = document.createElement("details");
+                rawDetails.style.marginTop = "0.5rem";
+                const rawSummary = document.createElement("summary");
+                rawSummary.className = "text-viewer-toggle";
+                rawSummary.textContent = "Inspect full extracted page text";
+                rawSummary.style.cursor = "pointer";
+                rawDetails.appendChild(rawSummary);
 
-                // Error message if fetch failed
-                if (src.error_message) {
-                    const errP = document.createElement("div");
-                    errP.className = "source-error-msg";
-                    errP.textContent = src.error_message;
-                    card.appendChild(errP);
-                }
+                const rawBox = document.createElement("div");
+                rawBox.className = "raw-page-text-box";
+                rawBox.style.marginTop = "0.5rem";
+                rawBox.textContent = src.extracted_text;
+                rawDetails.appendChild(rawBox);
 
-                // Matched passages from this source
-                const matchingPassages = (data.candidate_passages || []).filter(
-                    (p) => p.source_id === src.source_id
-                );
+                card.appendChild(rawDetails);
+            }
 
-                if (src.status === "retrieved") {
-                    if (matchingPassages.length > 0) {
-                        matchingPassages.forEach((p) => {
-                            const pBox = document.createElement("div");
-                            pBox.className = "passage-box";
-
-                            const pText = document.createElement("blockquote");
-                            pText.className = "passage-text";
-                            pText.textContent = `"${p.exact_passage}"`;
-                            pBox.appendChild(pText);
-
-                            if (p.relevance_note) {
-                                const relNote = document.createElement("div");
-                                relNote.className = "passage-relevance";
-                                relNote.textContent = `Relevance: ${p.relevance_note}`;
-                                pBox.appendChild(relNote);
-                            }
-
-                            // Provenance notice
-                            const provNotice = document.createElement("div");
-                            provNotice.className = "source-meta-row";
-                            provNotice.textContent = `Published: Unknown · Event: Unknown · Dependence: Unknown`;
-                            pBox.appendChild(provNotice);
-
-                            // Surrounding context toggle
-                            if (p.context_surrounding && p.context_surrounding !== p.exact_passage) {
-                                const ctxToggle = document.createElement("button");
-                                ctxToggle.type = "button";
-                                ctxToggle.className = "passage-context-toggle";
-                                ctxToggle.textContent = "Show surrounding context";
-
-                                const ctxBox = document.createElement("div");
-                                ctxBox.className = "passage-context-box hidden";
-                                ctxBox.textContent = p.context_surrounding;
-
-                                ctxToggle.addEventListener("click", () => {
-                                    const isHidden = ctxBox.classList.contains("hidden");
-                                    ctxBox.classList.toggle("hidden", !isHidden);
-                                    ctxToggle.textContent = isHidden ? "Hide surrounding context" : "Show surrounding context";
-                                });
-
-                                pBox.appendChild(ctxToggle);
-                                pBox.appendChild(ctxBox);
-                            }
-
-                            card.appendChild(pBox);
-                        });
-                    } else {
-                        const noP = document.createElement("p");
-                        noP.className = "hit-snippet";
-                        noP.textContent = "No specific assertion passages identified in retrieved body.";
-                        card.appendChild(noP);
-                    }
-
-                    // Collapsible complete decoded text viewer
-                    if (src.extracted_text) {
-                        const viewToggle = document.createElement("button");
-                        viewToggle.type = "button";
-                        viewToggle.className = "text-viewer-toggle";
-                        viewToggle.textContent = "Inspect full extracted page text";
-
-                        const rawBox = document.createElement("div");
-                        rawBox.className = "raw-page-text-box hidden";
-                        rawBox.textContent = src.extracted_text;
-
-                        viewToggle.addEventListener("click", () => {
-                            const isHidden = rawBox.classList.contains("hidden");
-                            rawBox.classList.toggle("hidden", !isHidden);
-                            viewToggle.textContent = isHidden ? "Hide extracted page text" : "Inspect full extracted page text";
-                        });
-
-                        card.appendChild(viewToggle);
-                        card.appendChild(rawBox);
-                    }
-                }
-
-                sourcesList.appendChild(card);
-            });
-        }
+            sourcesList.appendChild(card);
+        });
 
         sourcesSection.appendChild(sourcesList);
-        panel.appendChild(sourcesSection);
+        auditContent.appendChild(sourcesSection);
+
+        auditDrawer.appendChild(auditContent);
+        panel.appendChild(auditDrawer);
 
         container.appendChild(panel);
+    }
+
+    // --- Milestone 3B Multi-Tab Workspace for Claim Research Runs ---
+    function renderClaimResearchTabsWorkspace(container, claim, button, card) {
+        container.innerHTML = "";
+        const runs = claimResearchTabs[claim.id] || [];
+        if (runs.length === 0) return;
+
+        let activeTabId = activeClaimTabId[claim.id];
+        if (!activeTabId || !runs.some(r => r.id === activeTabId)) {
+            activeTabId = runs[runs.length - 1].id;
+            activeClaimTabId[claim.id] = activeTabId;
+        }
+
+        const activeRun = runs.find(r => r.id === activeTabId) || runs[runs.length - 1];
+
+        // Research tabs bar
+        const tabsBar = document.createElement("div");
+        tabsBar.className = "research-tabs-bar";
+
+        runs.forEach((run, rIdx) => {
+            const tabBtn = document.createElement("button");
+            tabBtn.type = "button";
+            tabBtn.className = `research-tab-btn ${run.id === activeRun.id ? "active" : ""}`;
+            tabBtn.textContent = run.title || `Tab ${rIdx + 1}`;
+            tabBtn.addEventListener("click", () => {
+                activeClaimTabId[claim.id] = run.id;
+                renderClaimResearchTabsWorkspace(container, claim, button, card);
+            });
+            tabsBar.appendChild(tabBtn);
+        });
+
+        container.appendChild(tabsBar);
+
+        // Content area for the active run
+        const contentContainer = document.createElement("div");
+        contentContainer.className = "research-tab-content";
+        container.appendChild(contentContainer);
+
+        renderResearchResults(contentContainer, activeRun.data, claim, button, card);
+        updateAllEvidenceCounters();
+    }
+
+    // --- Milestone 3B Top-Level Session Management ---
+    function updateActiveSessionState() {
+        if (!activeSessionId) return;
+        const sess = sessionInquiries.find(s => s.id === activeSessionId);
+        if (!sess) return;
+        sess.inputText = inputText.value;
+        sess.sourceUrl = sourceUrl ? sourceUrl.value : null;
+        sess.scopeQuestion = currentConfirmedScopeQuestion;
+        sess.scopeEdited = scopeQuestionManuallyEdited;
+        sess.claims = currentClaims;
+        sess.claimResearchTabs = claimResearchTabs;
+        sess.activeClaimTabId = activeClaimTabId;
+        sess.selectedQuotes = selectedQuotes;
+        sess.clarificationExchanges = clarificationExchanges;
+    }
+
+    function renderSessionTabs() {
+        if (!sessionTabsBar || !sessionTabsList) return;
+        if (sessionInquiries.length === 0) {
+            sessionTabsBar.classList.add("hidden");
+            return;
+        }
+        sessionTabsBar.classList.remove("hidden");
+        sessionTabsList.innerHTML = "";
+
+        sessionInquiries.forEach((sess) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = `session-tab-btn ${sess.id === activeSessionId ? "active" : ""}`;
+            btn.textContent = sess.title;
+            btn.title = sess.inputText;
+            btn.addEventListener("click", () => {
+                switchSession(sess.id);
+            });
+            sessionTabsList.appendChild(btn);
+        });
+    }
+
+    function switchSession(sessId) {
+        if (activeSessionId === sessId) return;
+        updateActiveSessionState();
+        const target = sessionInquiries.find(s => s.id === sessId);
+        if (!target) return;
+
+        activeSessionId = sessId;
+        inputText.value = target.inputText || "";
+        if (sourceUrl) sourceUrl.value = target.sourceUrl || "";
+        currentSourceUrl = target.sourceUrl || null;
+        currentConfirmedScopeQuestion = target.scopeQuestion || "";
+        scopeQuestionManuallyEdited = Boolean(target.scopeEdited);
+        currentClaims = target.claims || [];
+        claimResearchTabs = target.claimResearchTabs || {};
+        activeClaimTabId = target.activeClaimTabId || {};
+        selectedQuotes = target.selectedQuotes || {};
+        clarificationExchanges = target.clarificationExchanges || [];
+
+        renderSessionTabs();
+        updateStickyInquiryBar(currentConfirmedScopeQuestion || target.inputText);
+
+        const staleBanner = document.getElementById("claims-outdated-banner");
+        if (staleBanner) staleBanner.remove();
+
+        if (target.isClarification && target.data) {
+            resultsSection.classList.add("hidden");
+            renderClarification(target.data, currentSubmissionSeq);
+        } else if (target.data) {
+            if (clarificationSection) clarificationSection.classList.add("hidden");
+            renderResults(target.data, currentSubmissionSeq);
+            (target.claims || []).forEach(claim => {
+                if (claimResearchTabs[claim.id] && claimResearchTabs[claim.id].length > 0) {
+                    const card = document.getElementById(`claim-card-${claim.id}`);
+                    if (card) {
+                        const container = card.querySelector(`#research-container-${claim.id}`);
+                        const researchBtn = card.querySelector(`#btn-research-${claim.id}`);
+                        if (container && researchBtn) {
+                            container.classList.remove("hidden");
+                            renderClaimResearchTabsWorkspace(container, claim, researchBtn, card);
+                        }
+                    }
+                }
+            });
+        } else {
+            resultsSection.classList.add("hidden");
+            if (clarificationSection) clarificationSection.classList.add("hidden");
+        }
+    }
+
+    function startNewSession() {
+        updateActiveSessionState();
+        activeSessionId = null;
+        inputText.value = "";
+        if (sourceUrl) sourceUrl.value = "";
+        currentSourceUrl = null;
+        currentConfirmedScopeQuestion = "";
+        scopeQuestionManuallyEdited = false;
+        currentClaims = [];
+        claimResearchTabs = {};
+        activeClaimTabId = {};
+        selectedQuotes = {};
+        clarificationExchanges = [];
+        hideError();
+        resultsSection.classList.add("hidden");
+        if (clarificationSection) clarificationSection.classList.add("hidden");
+        if (stickyInquiryBar) stickyInquiryBar.classList.add("hidden");
+        const staleBanner = document.getElementById("claims-outdated-banner");
+        if (staleBanner) staleBanner.remove();
+        renderSessionTabs();
+        inputText.focus();
     }
 
     // --- Submission logic with request-ordering protection (Milestone 3A) ---
@@ -933,6 +1845,39 @@
         activeResearchClaimId = null;
         clarificationExchanges = [];
         setLoading(true);
+        showLoadingProgress("Analyzing your statement and checking scope…");
+
+        // Maintain top-level session list
+        if (!activeSessionId) {
+            const sessId = "sess_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+            activeSessionId = sessId;
+            let shortTitle = text;
+            if (shortTitle.length > 28) {
+                shortTitle = shortTitle.slice(0, 26) + "…";
+            }
+            sessionInquiries.push({
+                id: sessId,
+                title: `Inquiry ${sessionInquiries.length + 1}: ${shortTitle}`,
+                inputText: text,
+                sourceUrl: sourceUrl.value.trim() || null,
+                scopeQuestion: "",
+                scopeEdited: false,
+                claims: [],
+                claimResearchTabs: {},
+                activeClaimTabId: {},
+                selectedQuotes: {},
+                data: null,
+                isClarification: false,
+                clarificationExchanges: [],
+            });
+            renderSessionTabs();
+        } else {
+            const currentSess = sessionInquiries.find(s => s.id === activeSessionId);
+            if (currentSess) {
+                currentSess.inputText = text;
+                currentSess.sourceUrl = sourceUrl.value.trim() || null;
+            }
+        }
 
         // Clear previous results while new request is in flight to guarantee clean state ownership
         resultsSection.classList.add("hidden");
@@ -981,8 +1926,23 @@
             }
 
             if (data.clarification_needed) {
+                const currentSess = sessionInquiries.find(s => s.id === activeSessionId);
+                if (currentSess) {
+                    currentSess.data = data;
+                    currentSess.isClarification = true;
+                    currentSess.clarificationExchanges = clarificationExchanges;
+                }
+                renderSessionTabs();
                 renderClarification(data, seq);
             } else {
+                const currentSess = sessionInquiries.find(s => s.id === activeSessionId);
+                if (currentSess) {
+                    currentSess.data = data;
+                    currentSess.isClarification = false;
+                    currentSess.scopeQuestion = currentConfirmedScopeQuestion;
+                    currentSess.claims = data.claims || [];
+                }
+                renderSessionTabs();
                 renderResults(data, seq);
             }
         } catch (err) {
@@ -991,6 +1951,7 @@
         } finally {
             if (seq === currentSubmissionSeq) {
                 setLoading(false);
+                hideLoadingProgress();
             }
         }
     }
@@ -1079,6 +2040,12 @@
         });
     }
 
+    if (btnNewSession) {
+        btnNewSession.addEventListener("click", () => {
+            startNewSession();
+        });
+    }
+
     // Expose for testing if running in test environment
     if (typeof window !== "undefined") {
         window.__ScoopScope = {
@@ -1089,6 +2056,11 @@
             get currentConfirmedScopeQuestion() { return currentConfirmedScopeQuestion; },
             get scopeQuestionManuallyEdited() { return scopeQuestionManuallyEdited; },
             get currentClaims() { return currentClaims; },
+            get sessionInquiries() { return sessionInquiries; },
+            get activeSessionId() { return activeSessionId; },
+            get claimResearchTabs() { return claimResearchTabs; },
+            get activeClaimTabId() { return activeClaimTabId; },
+            get selectedQuotes() { return selectedQuotes; },
             handleScopeQuestionEdit,
             executeSubmission,
             renderResults,
@@ -1096,10 +2068,20 @@
             executeClarificationChoice,
             executeResearch,
             renderResearchResults,
+            renderClaimResearchTabsWorkspace,
+            renderSessionTabs,
+            switchSession,
+            startNewSession,
+            renderReportBuilderPanel,
+            updateAllEvidenceCounters,
             showError,
             hideError,
             setLoading,
             setClarificationLoading,
+            updateStickyInquiryBar,
+            buildTextFragmentUrl,
+            showLoadingProgress,
+            hideLoadingProgress,
             handleInputEdit,
             markSnapshotOutdated,
         };
