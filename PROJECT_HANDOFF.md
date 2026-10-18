@@ -1,8 +1,8 @@
 # ScoopScope — Project Handoff & Architecture Baseline
 
 **Document Version**: 1.0  
-**Current Milestone**: Milestone 4A (Decision 008)  
-**Baseline Commit**: `582272c`  
+**Current Milestone**: Milestone 4A Complete (Decisions 008 & 009)  
+**Baseline Commit**: `857c410`  
 **Workspace Root**: `c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope`  
 **Test Suite Status**: 164 passed offline (100% passing)  
 
@@ -112,6 +112,8 @@ All contributors and agents must uphold these non-negotiable rules:
   - Added floating inquiry banner, paired 2-column Cornell notes layout, W3C text fragment deep links, JSON-LD date extraction, `-filetype:pdf` query filtering, multi-tab workspace, and the `/api/report` synthesis endpoint. Verified read-only in Milestone 4B.
 - **Decision 008 (Milestone 4A)**: Playbook Repo Standardization & `.gitignore` Hygiene Fix
   - Standardized repository documentation (`PROJECT_HANDOFF.md`, `ARCHITECTURE.md`, `KNOWN_ISSUES.md`, `docs/HOW_IT_WORKS.md`), streamlined `AGENTS.md`, and fixed `.gitignore` gaps (`.pytest_cache/`, `*.patch`, `manifest.txt`).
+- **Decision 009 (Milestone 4A Post-Ship Cleanup)**: Spec Archival & Legacy Status Migration
+  - Archived completed 4A spec and legacy `STATUS.md` to `docs/archive/`, deleted untracked root scratch files, and affirmed `PROJECT_HANDOFF.md` as sole source of truth.
 
 ---
 
@@ -144,3 +146,6 @@ All contributors and agents must uphold these non-negotiable rules:
    - Multi-source defensible date extraction (JSON-LD, `<meta>`, `<time>`, bylines).
    - Social shell domain deprioritization and `-filetype:pdf` search query filtering.
    - Multi-tab session and claim workspace with custom report generation (`/api/report`).
+8. **Milestone 008 (Milestone 4A)**: Playbook Repo Standardization & Workspace Hygiene
+   - Canonical playbook documentation aligned, root files streamlined, untracked scratch purged, and test suite 100% passing.
+

@@ -102,4 +102,5 @@ Here are four technical terms ScoopScope uses and why they matter to you:
 - **Milestone 005 (2C Review)**: Search failure preservation (F1), multi-claim tab ownership (F2), and cooperative extraction deadlines (F3).
 - **Milestone 006 (3A)**: 2-round inquiry intake clarification, 3 coherent choices + free text, confirmed scope editing, and research invalidation.
 - **Milestone 007 (3B)**: Sticky floating inquiry bar, Cornell notes paired layout, defensible date provenance, `-filetype:pdf` filtering, multi-tab workspace, and Custom Report Studio.
-- **Milestone 008 (4A)**: Playbook repo standardization, documentation realignment, and `.gitignore` hygiene fix.
+- **Milestone 008 (4A)**: Playbook repo standardization, documentation realignment, and `.gitignore` hygiene fix (Milestone 4A complete and published).
+- **Milestone 009 (4A Post-Ship Cleanup)**: Archived completed 4A spec and legacy status file to `docs/archive/`, cleaned root scratch files, and verified clean repo state.
