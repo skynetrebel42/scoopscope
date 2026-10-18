@@ -5,6 +5,9 @@
 (function () {
     "use strict";
 
+    // Milestone 4E: Storage Key Constant (Decision 014)
+    const WORKSPACE_STORAGE_KEY = "scoopscope_workspace_v1";
+
     // --- DOM references ---
     const form = document.getElementById("extraction-form");
     const inputText = document.getElementById("input-text");
@@ -48,6 +51,7 @@
     const sessionTabsBar = document.getElementById("session-tabs-bar");
     const sessionTabsList = document.getElementById("session-tabs-list");
     const btnNewSession = document.getElementById("btn-new-session");
+    const btnClearWorkspace = document.getElementById("btn-clear-workspace");
 
     const resultsSection = document.getElementById("results-section");
     const resultsStatus = document.getElementById("results-status");
@@ -74,6 +78,7 @@
     let claimResearchTabs = {};
     let activeClaimTabId = {};
     let selectedQuotes = {};
+    let activeCitationStyle = "standard";
 
     // Research action state tracking to prevent stale overwrites and duplicate runs
     let activeResearchSeq = 0;
@@ -127,11 +132,17 @@
     // --- Character counter & input changes ---
     inputText.addEventListener("input", () => {
         charCount.textContent = inputText.value.length.toLocaleString();
+        const claimInput = document.getElementById("claim-input");
+        if (claimInput) claimInput.value = inputText.value;
         handleInputEdit();
+        updateActiveSessionState();
+        saveWorkspaceToStorage();
     });
 
     sourceUrl.addEventListener("input", () => {
         handleInputEdit();
+        updateActiveSessionState();
+        saveWorkspaceToStorage();
     });
 
     // --- Error handling ---
@@ -745,6 +756,7 @@
             });
 
             updateActiveSessionState();
+            saveWorkspaceToStorage();
             renderClaimResearchTabsWorkspace(container, claim, button, card);
         } catch (err) {
             if (researchSeq !== activeResearchSeq) return;
@@ -1016,6 +1028,7 @@
             document.querySelectorAll(".quote-select-checkbox").forEach(cb => { cb.checked = true; });
             updateAllEvidenceCounters();
             updateActiveSessionState();
+            saveWorkspaceToStorage();
         });
         counterWrap.appendChild(selectAllBtn);
 
@@ -1030,6 +1043,7 @@
             document.querySelectorAll(".quote-select-checkbox").forEach(cb => { cb.checked = false; });
             updateAllEvidenceCounters();
             updateActiveSessionState();
+            saveWorkspaceToStorage();
         });
         counterWrap.appendChild(clearBtn);
 
@@ -1075,6 +1089,7 @@
 
         const citationSelect = document.createElement("select");
         citationSelect.className = "report-citation-select citation-style-select";
+        citationSelect.id = "citation-style-select";
         const citationOptions = [
             { value: "standard", label: "Standard Numbered — [1] Title — Domain (Date) [Jurisdiction]" },
             { value: "apa", label: "APA (7th Edition) — Author/Title. (Year or n.d.). Site. URL [Jurisdiction]" },
@@ -1085,6 +1100,11 @@
             opt.value = optData.value;
             opt.textContent = optData.label;
             citationSelect.appendChild(opt);
+        });
+        citationSelect.value = activeCitationStyle || "standard";
+        citationSelect.addEventListener("change", (e) => {
+            activeCitationStyle = e.target.value;
+            saveWorkspaceToStorage();
         });
         citationGroup.appendChild(citationSelect);
         controls.appendChild(citationGroup);
@@ -1209,6 +1229,8 @@
         });
 
         citationSelect.addEventListener("change", () => {
+            activeCitationStyle = citationSelect.value;
+            saveWorkspaceToStorage();
             if (lastGeneratedMarkdown && activeReportSources.length > 0) {
                 lastGeneratedMarkdown = updateReportWorksCited(lastGeneratedMarkdown, activeReportSources, citationSelect.value);
                 outputBody.innerHTML = renderMarkdown(lastGeneratedMarkdown);
@@ -1464,11 +1486,7 @@
                 }
 
                 quoteCheckbox.addEventListener("change", () => {
-                    if (selectedQuotes[quoteKey]) {
-                        selectedQuotes[quoteKey].checked = quoteCheckbox.checked;
-                    }
-                    updateAllEvidenceCounters();
-                    updateActiveSessionState();
+                    toggleQuoteSelection(quoteKey, quoteCheckbox.checked);
                 });
 
                 includeLabel.appendChild(quoteCheckbox);
@@ -1876,12 +1894,14 @@
         updateAllEvidenceCounters();
     }
 
-    // --- Milestone 3B Top-Level Session Management ---
+    // --- Milestone 3B & 4E Top-Level Session & Workspace Persistence Management ---
     function updateActiveSessionState() {
         if (!activeSessionId) return;
         const sess = sessionInquiries.find(s => s.id === activeSessionId);
         if (!sess) return;
         sess.inputText = inputText.value;
+        const claimInput = document.getElementById("claim-input");
+        if (claimInput) claimInput.value = inputText.value;
         sess.sourceUrl = sourceUrl ? sourceUrl.value : null;
         sess.scopeQuestion = currentConfirmedScopeQuestion;
         sess.scopeEdited = scopeQuestionManuallyEdited;
@@ -1890,6 +1910,242 @@
         sess.activeClaimTabId = activeClaimTabId;
         sess.selectedQuotes = selectedQuotes;
         sess.clarificationExchanges = clarificationExchanges;
+        sess.isClarifying = false;
+        sess.isResearching = false;
+    }
+
+    function createEmptySession(title) {
+        const sessCount = sessionInquiries.length + 1;
+        const sessId = "sess_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+        return {
+            id: sessId,
+            title: title || `Session ${sessCount}`,
+            inputText: "",
+            sourceUrl: null,
+            scopeQuestion: "",
+            scopeEdited: false,
+            claims: [],
+            claimResearchTabs: {},
+            activeClaimTabId: {},
+            selectedQuotes: {},
+            data: null,
+            isClarification: false,
+            clarificationExchanges: [],
+            isClarifying: false,
+            isResearching: false,
+        };
+    }
+
+    function saveWorkspaceToStorage() {
+        updateActiveSessionState();
+        const payload = {
+            version: 1,
+            activeSessionId: activeSessionId,
+            citationStyle: activeCitationStyle || "standard",
+            sessions: sessionInquiries.map((s) => {
+                let quotesArray;
+                if (Array.isArray(s.selectedQuotes)) {
+                    quotesArray = s.selectedQuotes;
+                } else if (s.selectedQuotes instanceof Map) {
+                    quotesArray = Array.from(s.selectedQuotes.entries());
+                } else if (s.selectedQuotes && typeof s.selectedQuotes === "object") {
+                    quotesArray = Object.entries(s.selectedQuotes);
+                } else {
+                    quotesArray = [];
+                }
+                return {
+                    id: s.id,
+                    title: s.title,
+                    inputText: s.inputText || "",
+                    sourceUrl: s.sourceUrl || null,
+                    scopeQuestion: s.scopeQuestion || "",
+                    scopeEdited: Boolean(s.scopeEdited),
+                    claims: s.claims || [],
+                    claimResearchTabs: s.claimResearchTabs || {},
+                    activeClaimTabId: s.activeClaimTabId || {},
+                    selectedQuotes: quotesArray, // Decision 015: Map <-> JSON array
+                    data: s.data || null,
+                    isClarification: Boolean(s.isClarification),
+                    clarificationExchanges: s.clarificationExchanges || [],
+                    isClarifying: false,
+                    isResearching: false,
+                };
+            }),
+        };
+        try {
+            localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(payload));
+        } catch (err) {
+            console.warn("Could not save workspace to localStorage:", err);
+        }
+    }
+
+    function loadWorkspaceFromStorage() {
+        let raw = null;
+        try {
+            raw = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+        } catch (err) {
+            console.warn("localStorage read failed:", err);
+        }
+
+        if (!raw) {
+            if (sessionInquiries.length === 0) {
+                const initial = createEmptySession("Session 1");
+                sessionInquiries = [initial];
+                activeSessionId = initial.id;
+                renderSessionTabs();
+            }
+            return false;
+        }
+
+        let parsed = null;
+        try {
+            parsed = JSON.parse(raw);
+        } catch (err) {
+            console.warn("Corrupt workspace state in localStorage, resetting to default Session 1:", err);
+            const fresh = createEmptySession("Session 1");
+            sessionInquiries = [fresh];
+            activeSessionId = fresh.id;
+            activeCitationStyle = "standard";
+            renderSessionTabs();
+            saveWorkspaceToStorage();
+            return false;
+        }
+
+        if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.sessions) || parsed.sessions.length === 0) {
+            const fresh = createEmptySession("Session 1");
+            sessionInquiries = [fresh];
+            activeSessionId = fresh.id;
+            activeCitationStyle = "standard";
+            renderSessionTabs();
+            saveWorkspaceToStorage();
+            return false;
+        }
+
+        activeCitationStyle = parsed.citationStyle || "standard";
+        sessionInquiries = parsed.sessions.map((rawSess, idx) => {
+            const sessId = rawSess.id || ("sess_" + Date.now() + "_" + idx);
+            let quotes = {};
+            if (Array.isArray(rawSess.selectedQuotes)) {
+                quotes = Object.fromEntries(rawSess.selectedQuotes);
+            } else if (rawSess.selectedQuotes && typeof rawSess.selectedQuotes === "object") {
+                quotes = rawSess.selectedQuotes;
+            }
+            return {
+                id: sessId,
+                title: rawSess.title || ("Session " + (idx + 1)),
+                inputText: rawSess.inputText || "",
+                sourceUrl: rawSess.sourceUrl || null,
+                scopeQuestion: rawSess.scopeQuestion || "",
+                scopeEdited: Boolean(rawSess.scopeEdited),
+                claims: Array.isArray(rawSess.claims) ? rawSess.claims : [],
+                claimResearchTabs: rawSess.claimResearchTabs || {},
+                activeClaimTabId: rawSess.activeClaimTabId || {},
+                selectedQuotes: quotes,
+                data: rawSess.data || null,
+                isClarification: Boolean(rawSess.isClarification),
+                clarificationExchanges: Array.isArray(rawSess.clarificationExchanges) ? rawSess.clarificationExchanges : [],
+                // Decision 015: Force transient loading spinner reset
+                isClarifying: false,
+                isResearching: false,
+            };
+        });
+
+        const targetId = parsed.activeSessionId && sessionInquiries.some((s) => s.id === parsed.activeSessionId)
+            ? parsed.activeSessionId
+            : sessionInquiries[0].id;
+
+        activeSessionId = targetId;
+        switchSession(activeSessionId);
+        renderSessionTabs();
+
+        setLoading(false);
+        setClarificationLoading(false);
+        hideLoadingProgress();
+
+        document.querySelectorAll("#citation-style-select, .citation-style-select").forEach(sel => {
+            sel.value = activeCitationStyle;
+        });
+
+        return true;
+    }
+
+    function clearWorkspace() {
+        try {
+            localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+        } catch (err) {
+            console.warn("Could not remove item from localStorage:", err);
+        }
+
+        activeCitationStyle = "standard";
+        const fresh = createEmptySession("Session 1");
+        sessionInquiries = [fresh];
+        activeSessionId = fresh.id;
+
+        inputText.value = "";
+        charCount.textContent = "0";
+        if (sourceUrl) sourceUrl.value = "";
+        const claimInput = document.getElementById("claim-input");
+        if (claimInput) claimInput.value = "";
+        currentSubmissionId = null;
+        currentSourceUrl = null;
+        currentClarificationData = null;
+        clarificationExchanges = [];
+        currentConfirmedScopeQuestion = "";
+        scopeQuestionManuallyEdited = false;
+        currentClaims = [];
+        claimResearchTabs = {};
+        activeClaimTabId = {};
+        selectedQuotes = {};
+        activeResearchClaimId = null;
+
+        setLoading(false);
+        setClarificationLoading(false);
+        hideLoadingProgress();
+        hideError();
+
+        resultsSection.classList.add("hidden");
+        if (clarificationSection) clarificationSection.classList.add("hidden");
+        if (stickyInquiryBar) stickyInquiryBar.classList.add("hidden");
+        const reportStudio = document.getElementById("report-studio-section");
+        if (reportStudio) reportStudio.classList.add("hidden");
+        document.querySelectorAll(".report-output-card, .report-builder-panel").forEach(el => el.classList.add("hidden"));
+        const staleBanner = document.getElementById("claims-outdated-banner");
+        if (staleBanner) staleBanner.remove();
+
+        document.querySelectorAll("#citation-style-select, .citation-style-select").forEach(sel => {
+            sel.value = "standard";
+        });
+
+        renderSessionTabs();
+        saveWorkspaceToStorage();
+        inputText.focus();
+    }
+
+    function closeSessionTab(sessionId) {
+        const idx = sessionInquiries.findIndex((s) => s.id === sessionId);
+        if (idx === -1) return;
+
+        sessionInquiries.splice(idx, 1);
+        if (sessionInquiries.length === 0) {
+            const fresh = createEmptySession("Session 1");
+            sessionInquiries.push(fresh);
+            activeSessionId = fresh.id;
+            switchSession(fresh.id);
+        } else if (activeSessionId === sessionId) {
+            const newIdx = Math.min(idx, sessionInquiries.length - 1);
+            activeSessionId = sessionInquiries[newIdx].id;
+            switchSession(activeSessionId);
+        }
+        renderSessionTabs();
+        saveWorkspaceToStorage();
+    }
+
+    function toggleQuoteSelection(quoteKey, explicitValue) {
+        if (!selectedQuotes[quoteKey]) return;
+        selectedQuotes[quoteKey].checked = explicitValue !== undefined ? Boolean(explicitValue) : !selectedQuotes[quoteKey].checked;
+        updateAllEvidenceCounters();
+        updateActiveSessionState();
+        saveWorkspaceToStorage();
     }
 
     function renderSessionTabs() {
@@ -1905,8 +2161,25 @@
             const btn = document.createElement("button");
             btn.type = "button";
             btn.className = `session-tab-btn ${sess.id === activeSessionId ? "active" : ""}`;
-            btn.textContent = sess.title;
-            btn.title = sess.inputText;
+            btn.title = sess.inputText || sess.title;
+
+            const titleSpan = document.createElement("span");
+            titleSpan.className = "session-tab-title";
+            titleSpan.textContent = sess.title;
+            btn.appendChild(titleSpan);
+
+            const closeSpan = document.createElement("span");
+            closeSpan.className = "btn-close-tab";
+            closeSpan.innerHTML = "&times;";
+            closeSpan.title = "Close tab";
+            closeSpan.setAttribute("role", "button");
+            closeSpan.setAttribute("aria-label", "Close tab");
+            closeSpan.addEventListener("click", (e) => {
+                e.stopPropagation();
+                closeSessionTab(sess.id);
+            });
+            btn.appendChild(closeSpan);
+
             btn.addEventListener("click", () => {
                 switchSession(sess.id);
             });
@@ -1915,13 +2188,15 @@
     }
 
     function switchSession(sessId) {
-        if (activeSessionId === sessId) return;
         updateActiveSessionState();
         const target = sessionInquiries.find(s => s.id === sessId);
         if (!target) return;
 
         activeSessionId = sessId;
         inputText.value = target.inputText || "";
+        const claimInput = document.getElementById("claim-input");
+        if (claimInput) claimInput.value = target.inputText || "";
+        charCount.textContent = (target.inputText || "").length.toLocaleString();
         if (sourceUrl) sourceUrl.value = target.sourceUrl || "";
         currentSourceUrl = target.sourceUrl || null;
         currentConfirmedScopeQuestion = target.scopeQuestion || "";
@@ -1948,8 +2223,8 @@
                 if (claimResearchTabs[claim.id] && claimResearchTabs[claim.id].length > 0) {
                     const card = document.getElementById(`claim-card-${claim.id}`);
                     if (card) {
-                        const container = card.querySelector(`#research-container-${claim.id}`);
-                        const researchBtn = card.querySelector(`#btn-research-${claim.id}`);
+                        const container = card.querySelector(`#research-container-${claim.id}`) || card.querySelector(`.claim-research-container`);
+                        const researchBtn = card.querySelector(`#btn-research-${claim.id}`) || card.querySelector(`.btn-research`);
                         if (container && researchBtn) {
                             container.classList.remove("hidden");
                             renderClaimResearchTabsWorkspace(container, claim, researchBtn, card);
@@ -1961,13 +2236,25 @@
             resultsSection.classList.add("hidden");
             if (clarificationSection) clarificationSection.classList.add("hidden");
         }
+
+        document.querySelectorAll("#citation-style-select, .citation-style-select").forEach(sel => {
+            sel.value = activeCitationStyle;
+        });
+
+        updateAllEvidenceCounters();
     }
 
     function startNewSession() {
         updateActiveSessionState();
-        activeSessionId = null;
+        const nextNum = sessionInquiries.length + 1;
+        const newSess = createEmptySession(`Session ${nextNum}`);
+        sessionInquiries.push(newSess);
+        activeSessionId = newSess.id;
         inputText.value = "";
+        charCount.textContent = "0";
         if (sourceUrl) sourceUrl.value = "";
+        const claimInput = document.getElementById("claim-input");
+        if (claimInput) claimInput.value = "";
         currentSourceUrl = null;
         currentConfirmedScopeQuestion = "";
         scopeQuestionManuallyEdited = false;
@@ -1983,6 +2270,7 @@
         const staleBanner = document.getElementById("claims-outdated-banner");
         if (staleBanner) staleBanner.remove();
         renderSessionTabs();
+        saveWorkspaceToStorage();
         inputText.focus();
     }
 
@@ -2004,14 +2292,15 @@
         showLoadingProgress("Analyzing your statement and checking scope…");
 
         // Maintain top-level session list
-        if (!activeSessionId) {
+        let currentSess = sessionInquiries.find(s => s.id === activeSessionId);
+        if (!currentSess) {
             const sessId = "sess_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
             activeSessionId = sessId;
             let shortTitle = text;
             if (shortTitle.length > 28) {
                 shortTitle = shortTitle.slice(0, 26) + "…";
             }
-            sessionInquiries.push({
+            currentSess = {
                 id: sessId,
                 title: `Inquiry ${sessionInquiries.length + 1}: ${shortTitle}`,
                 inputText: text,
@@ -2025,15 +2314,22 @@
                 data: null,
                 isClarification: false,
                 clarificationExchanges: [],
-            });
+                isClarifying: false,
+                isResearching: false,
+            };
+            sessionInquiries.push(currentSess);
             renderSessionTabs();
         } else {
-            const currentSess = sessionInquiries.find(s => s.id === activeSessionId);
-            if (currentSess) {
-                currentSess.inputText = text;
-                currentSess.sourceUrl = sourceUrl.value.trim() || null;
+            currentSess.inputText = text;
+            currentSess.sourceUrl = sourceUrl.value.trim() || null;
+            if (!currentSess.data && (currentSess.title.startsWith("Session ") || currentSess.title === "Session 1")) {
+                let shortTitle = text.length > 28 ? text.slice(0, 26) + "…" : text;
+                const idx = sessionInquiries.indexOf(currentSess) + 1;
+                currentSess.title = `Inquiry ${idx}: ${shortTitle}`;
+                renderSessionTabs();
             }
         }
+        saveWorkspaceToStorage();
 
         // Clear previous results while new request is in flight to guarantee clean state ownership
         resultsSection.classList.add("hidden");
@@ -2090,6 +2386,7 @@
                 }
                 renderSessionTabs();
                 renderClarification(data, seq);
+                saveWorkspaceToStorage();
             } else {
                 const currentSess = sessionInquiries.find(s => s.id === activeSessionId);
                 if (currentSess) {
@@ -2100,6 +2397,7 @@
                 }
                 renderSessionTabs();
                 renderResults(data, seq);
+                saveWorkspaceToStorage();
             }
         } catch (err) {
             if (seq !== currentSubmissionSeq) return;
@@ -2202,9 +2500,24 @@
         });
     }
 
+    if (btnClearWorkspace) {
+        btnClearWorkspace.addEventListener("click", () => {
+            clearWorkspace();
+        });
+    }
+
     // Expose for testing if running in test environment
     if (typeof window !== "undefined") {
         window.__ScoopScope = {
+            WORKSPACE_STORAGE_KEY,
+            get workspaceState() {
+                return {
+                    version: 1,
+                    activeSessionId,
+                    citationStyle: activeCitationStyle,
+                    sessions: sessionInquiries,
+                };
+            },
             get currentSeq() { return currentSubmissionSeq; },
             get activeResearchSeq() { return activeResearchSeq; },
             get activeResearchClaimId() { return activeResearchClaimId; },
@@ -2217,6 +2530,15 @@
             get claimResearchTabs() { return claimResearchTabs; },
             get activeClaimTabId() { return activeClaimTabId; },
             get selectedQuotes() { return selectedQuotes; },
+            get activeCitationStyle() { return activeCitationStyle; },
+            set activeCitationStyle(val) { activeCitationStyle = val; },
+            saveWorkspaceToStorage,
+            loadWorkspaceFromStorage,
+            clearWorkspace,
+            createEmptySession,
+            switchSessionTab: switchSession,
+            closeSessionTab,
+            toggleQuoteSelection,
             handleScopeQuestionEdit,
             executeSubmission,
             renderResults,
@@ -2241,5 +2563,13 @@
             handleInputEdit,
             markSnapshotOutdated,
         };
+
+        window.saveWorkspaceToStorage = saveWorkspaceToStorage;
+        window.loadWorkspaceFromStorage = loadWorkspaceFromStorage;
+        window.clearWorkspace = clearWorkspace;
+        window.WORKSPACE_STORAGE_KEY = WORKSPACE_STORAGE_KEY;
     }
+
+    // Initialize workspace from localStorage (Milestone 4E)
+    loadWorkspaceFromStorage();
 })();

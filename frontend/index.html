@@ -55,7 +55,8 @@
             <!-- Top-Level Session Inquiry Tabs (Milestone 3B Multi-Tab Upgrade) -->
             <div id="session-tabs-bar" class="session-tabs-bar hidden" role="tablist" aria-label="Investigation Sessions">
                 <div id="session-tabs-list" class="session-tabs-list"></div>
-                <button id="btn-new-session" type="button" class="btn-new-session" title="Start a fresh inquiry without losing previous ones">+ New</button>
+                <button id="btn-new-session" type="button" class="btn-new-session btn-new-session-tab" title="Start a fresh inquiry without losing previous ones">+ New</button>
+                <button id="btn-clear-workspace" class="btn-clear-workspace" type="button" title="Clear all saved tabs and reset workspace">Clear Workspace</button>
             </div>
 
             <form id="extraction-form" class="input-card" autocomplete="off">
@@ -69,6 +70,7 @@
                         maxlength="10000"
                         required
                     ></textarea>
+                    <input id="claim-input" type="hidden" value="" />
                     <div class="char-counter">
                         <span id="char-count">0</span> / 10,000
                     </div>
@@ -185,6 +187,8 @@
                     </p>
                 </div>
             </section>
+
+            <section id="report-studio-section" class="hidden"></section>
         </main>
 
         <footer class="app-footer">
