@@ -1260,6 +1260,17 @@
                 }
                 cueMeta.appendChild(cueDate);
 
+                // Milestone 4C: Deterministic Official Jurisdiction Badge
+                const jurisTag = p.jurisdiction_tag || (data.retrieved_sources && (data.retrieved_sources.find(s => s.source_id === p.source_id || s.initial_url === p.source_url || s.final_url === p.source_url) || {}).jurisdiction_tag);
+                const jurisCode = p.jurisdiction_code || (data.retrieved_sources && (data.retrieved_sources.find(s => s.source_id === p.source_id || s.initial_url === p.source_url || s.final_url === p.source_url) || {}).jurisdiction_code);
+
+                if (jurisTag) {
+                    const cueJuris = document.createElement("span");
+                    cueJuris.className = `jurisdiction-badge ${jurisCode ? "jurisdiction-" + jurisCode : ""}`;
+                    cueJuris.textContent = jurisTag;
+                    cueMeta.appendChild(cueJuris);
+                }
+
                 cueCard.appendChild(cueMeta);
                 cueCell.appendChild(cueCard);
                 pairRow.appendChild(cueCell);

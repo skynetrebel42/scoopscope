@@ -23,6 +23,7 @@ from google import genai
 from google.genai import types as genai_types
 
 from app.config import settings
+from app.jurisdiction import detect_la_jurisdiction_ambiguity
 from app.models import (
     ClaimExtractionResultLLM,
     ClaimType,
@@ -92,6 +93,16 @@ Core Objectives:
 4. Plain-Language & Clarification Context Integration:
    - Phrase clarification_choices, interpreted_question, and subclaims in plain, everyday journalistic and regulatory language (e.g., "food safety recalls, banned antibiotics, or contamination reports") rather than academic textbook jargon (like "veterinary drug residues") that skews search toward medical journals.
    - When prior clarification exchanges exist, ensure every extracted subclaim's normalized_assertion actively incorporates the user's selected clarification context.
+
+5. Los Angeles Jurisdiction Guardrails (Milestone 4C):
+   - If an inquiry references "LA", "L.A.", or "Los Angeles" without specifying whether it refers to the City of Los Angeles or Los Angeles County:
+     - You MUST set is_clear=false.
+     - Ask whether the inquiry refers to the City of Los Angeles, Los Angeles County, or both.
+     - Provide EXACTLY THREE choices:
+       1. "City of Los Angeles (City policy/ordinance)"
+       2. "Los Angeles County (County/unincorporated)"
+       3. "Both (City of LA and LA County)"
+     - Note in material_uncertainties: "Jurisdiction unconfirmed: City of Los Angeles vs. Los Angeles County".
 """
 
 SYNTHESIS_SYSTEM_INSTRUCTION = """\
@@ -113,6 +124,8 @@ Rules and Guardrails:
    - Output clean, direct search queries using key entities/locations and angles (e.g. "European Commission Food Safety audit Argentine beef 2024").
    - NEVER wrap queries in meta-instructions like "Check primary regulatory filings regarding..." or "Search official archives for updates on...".
    - NEVER include search operators like "site:" or "filetype:".
+6. JURISDICTION CONTEXT (Milestone 4C):
+   - For civic or local policy claims (especially regarding Los Angeles), explicitly note whether cited evidence applies to the municipal city level (e.g. City of LA), county level (e.g. LA County / unincorporated), or regional/state level, based on the verbatim source text and official badges.
 """
 
 
@@ -421,9 +434,15 @@ class GeminiAdapter:
         num_exchanges = len(exchanges or [])
         max_rounds_reached = (round_index >= 3) or (num_exchanges >= 2) or explicit_broad
 
+        is_la_ambiguous = detect_la_jurisdiction_ambiguity(submitted_text)
+
         if max_rounds_reached:
             clarification_needed = False
             is_clear = True
+        elif is_la_ambiguous and round_index == 1 and not exchanges:
+            # Milestone 4C: Deterministic guardrail for ambiguous LA civic queries
+            clarification_needed = True
+            is_clear = False
         else:
             clarification_needed = not analysis.is_clear
             is_clear = not clarification_needed
@@ -432,23 +451,31 @@ class GeminiAdapter:
         choices: list[str] | None = None
 
         if clarification_needed:
-            if not analysis.clarification_question or not analysis.clarification_question.strip():
-                raise GeminiAdapterError("Model requested clarification but omitted a clarifying question.")
-            question = analysis.clarification_question.strip()
+            if is_la_ambiguous and round_index == 1 and not exchanges:
+                question = "Does this inquiry refer to the City of Los Angeles, Los Angeles County, or both?"
+                choices = [
+                    "City of Los Angeles (City policy/ordinance)",
+                    "Los Angeles County (County/unincorporated)",
+                    "Both (City of LA and LA County)",
+                ]
+            else:
+                if not analysis.clarification_question or not analysis.clarification_question.strip():
+                    raise GeminiAdapterError("Model requested clarification but omitted a clarifying question.")
+                question = analysis.clarification_question.strip()
 
-            raw_choices = analysis.clarification_choices or []
-            cleaned: list[str] = []
-            for c in raw_choices:
-                if c and isinstance(c, str):
-                    s = c.strip()
-                    if s and s not in cleaned:
-                        cleaned.append(s)
+                raw_choices = analysis.clarification_choices or []
+                cleaned: list[str] = []
+                for c in raw_choices:
+                    if c and isinstance(c, str):
+                        s = c.strip()
+                        if s and s not in cleaned:
+                            cleaned.append(s)
 
-            if len(cleaned) < 3:
-                raise GeminiAdapterError(
-                    f"Model requested clarification but returned fewer than 3 valid choices ({len(cleaned)} found)."
-                )
-            choices = cleaned[:3]
+                if len(cleaned) < 3:
+                    raise GeminiAdapterError(
+                        f"Model requested clarification but returned fewer than 3 valid choices ({len(cleaned)} found)."
+                    )
+                choices = cleaned[:3]
 
         # Convert subclaims to ExtractedClaim with UUIDs (no fabricated fallback subclaim)
         subclaims: list[ExtractedClaim] = []

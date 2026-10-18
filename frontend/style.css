@@ -1493,6 +1493,50 @@ body::before {
     width: fit-content;
 }
 
+/* Milestone 4C: Official Jurisdiction Provenance Badges */
+.jurisdiction-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.45rem;
+    border-radius: 3px;
+    font-size: 0.70rem;
+    font-weight: 600;
+    width: fit-content;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border: 1px solid transparent;
+}
+
+.jurisdiction-la_city {
+    background: rgba(62, 207, 180, 0.12);
+    color: #3ecfb4;
+    border-color: rgba(62, 207, 180, 0.35);
+}
+
+.jurisdiction-la_county {
+    background: rgba(245, 166, 35, 0.12);
+    color: #f5a623;
+    border-color: rgba(245, 166, 35, 0.35);
+}
+
+.jurisdiction-la_regional {
+    background: rgba(155, 81, 224, 0.12);
+    color: #bb86fc;
+    border-color: rgba(155, 81, 224, 0.35);
+}
+
+.jurisdiction-ca_state {
+    background: rgba(47, 128, 237, 0.12);
+    color: #56ccf2;
+    border-color: rgba(47, 128, 237, 0.35);
+}
+
+.jurisdiction-us_gov {
+    background: rgba(111, 207, 151, 0.12);
+    color: #6fcf97;
+    border-color: rgba(111, 207, 151, 0.35);
+}
+
 /* Right Note Quote Bullet */
 .cornell-quote-bullet {
     height: 100%;

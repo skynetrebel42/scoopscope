@@ -1470,6 +1470,8 @@
                                     relevance_explanation: "This quote directly confirms that European authorities suspended certifications due to chemical residues found in packaging plants.",
                                     relevance_note: "Keyword match (3 claim terms: ban, beef, chemical)",
                                     source_dependence: "primary",
+                                    jurisdiction_tag: "City of LA Official",
+                                    jurisdiction_code: "la_city",
                                     retrieved_at: new Date().toISOString()
                                 }
                             ],
@@ -1556,6 +1558,12 @@
             assert(cueCard.querySelector(".cue-fit-text").textContent.includes("This quote directly confirms that European authorities suspended certifications"), "relevance_explanation ('How this fits') rendered");
             assert(cueCard.textContent.includes("Published: 2024-09-15"), "Defensible publication date rendered");
             assert(cueCard.textContent.includes("(Updated: 2024-10-01)"), "Updated publication date rendered");
+
+            // Milestone 4C: Verify jurisdiction badge renders inertly inside .cornell-cue-card
+            const jurisBadge = cueCard.querySelector(".jurisdiction-badge");
+            assert(jurisBadge !== null, "Jurisdiction badge (.jurisdiction-badge) rendered inside .cornell-cue-card");
+            assert(jurisBadge.classList.contains("jurisdiction-la_city"), "Jurisdiction badge has .jurisdiction-la_city class");
+            assert(jurisBadge.textContent === "City of LA Official", "Jurisdiction badge displays correct textContent");
 
             // Right Notes Cell
             const quoteCell = pairRow.querySelector(".cornell-quote-cell");

@@ -24,6 +24,10 @@ from datetime import datetime, timezone
 
 from app.config import settings
 from app.gemini_adapter import GeminiAdapter
+from app.jurisdiction import (
+    classify_source_jurisdiction,
+    detect_la_jurisdiction_ambiguity,
+)
 from app.models import ResearchRequest, ResearchResponse
 from app.retrieval.passage_extractor import (
     clean_html_to_text,
@@ -309,6 +313,7 @@ class ResearchOrchestrator:
 
                 for raw in raw_results:
                     hit_id = f"hit_{uuid.uuid4().hex[:10]}"
+                    raw_juris = classify_source_jurisdiction(raw.url)
                     hit = SearchResultHit(
                         result_id=hit_id,
                         query_id=q_id,
@@ -319,6 +324,8 @@ class ResearchOrchestrator:
                         rank=raw.rank,
                         engine=raw.engine,
                         is_snippet_only=True,
+                        jurisdiction_tag=raw_juris["label"] if raw_juris else None,
+                        jurisdiction_code=raw_juris["code"] if raw_juris else None,
                     )
                     search_hits.append(hit)
 
@@ -444,6 +451,14 @@ class ResearchOrchestrator:
                             passages = []
 
                         for passage in passages:
+                            p_juris = classify_source_jurisdiction(passage.source_url)
+                            if p_juris:
+                                passage = passage.model_copy(
+                                    update={
+                                        "jurisdiction_tag": p_juris["label"],
+                                        "jurisdiction_code": p_juris["code"],
+                                    }
+                                )
                             if verify_passage_provenance(passage, source):
                                 candidate_passages.append(passage)
 
@@ -459,6 +474,14 @@ class ResearchOrchestrator:
                             }
                         )
 
+                src_juris = classify_source_jurisdiction(source.final_url or source.initial_url)
+                if src_juris:
+                    source = source.model_copy(
+                        update={
+                            "jurisdiction_tag": src_juris["label"],
+                            "jurisdiction_code": src_juris["code"],
+                        }
+                    )
                 retrieved_sources.append(source)
 
         try:

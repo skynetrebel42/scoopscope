@@ -54,6 +54,8 @@ class SearchResultHit(BaseModel):
     rank: int = Field(ge=1)
     engine: str = Field(min_length=1)
     is_snippet_only: Literal[True] = Field(default=True, frozen=True)
+    jurisdiction_tag: str | None = Field(default=None, description="Deterministic official jurisdiction label")
+    jurisdiction_code: str | None = Field(default=None, description="Deterministic jurisdiction code")
 
 
 class SourceFetchState(str, Enum):
@@ -84,6 +86,8 @@ class RetrievedSource(BaseModel):
     extracted_text: str | None = None
     raw_text: str | None = Field(default=None, description="Bounded raw decoded source representation before cleaning (up to 1MB)")
     extraction_note: str | None = Field(default=None, description="Audit notes describing normalization and cleaning applied")
+    jurisdiction_tag: str | None = Field(default=None, description="Deterministic official jurisdiction label")
+    jurisdiction_code: str | None = Field(default=None, description="Deterministic jurisdiction code")
 
 
 class SourceDependence(str, Enum):
@@ -117,3 +121,6 @@ class EvidencePassage(BaseModel):
     end_offset: int | None = Field(default=None, ge=0, description="End character offset in extracted_text")
     relevance_note: str | None = Field(default=None, description="Relevance diagnostic note (e.g. keyword match)")
     relevance_explanation: str | None = Field(default=None, description="Concise 1-sentence explanation of how this quote relates to the inquiry")
+    jurisdiction_tag: str | None = Field(default=None, description="Deterministic official jurisdiction label")
+    jurisdiction_code: str | None = Field(default=None, description="Deterministic jurisdiction code")
+

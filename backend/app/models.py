@@ -14,6 +14,10 @@ from datetime import datetime, timezone
 from typing import Optional
 from pydantic import BaseModel, Field
 
+from app.jurisdiction import (
+    classify_source_jurisdiction,
+    detect_la_jurisdiction_ambiguity,
+)
 from app.search.models import (
     ClaimLinkedQuery,
     EvidencePassage,
@@ -332,6 +336,8 @@ class SelectedPassageItem(BaseModel):
     updated_date: Optional[str] = None
     retrieval_timestamp: Optional[str] = None
     source_title: Optional[str] = None
+    jurisdiction_tag: Optional[str] = None
+    jurisdiction_code: Optional[str] = None
 
 
 class SourceMetadataItem(BaseModel):
@@ -341,6 +347,8 @@ class SourceMetadataItem(BaseModel):
     publication_date: Optional[str] = None
     retrieval_date: Optional[str] = None
     status: Optional[str] = "retrieved"
+    jurisdiction_tag: Optional[str] = None
+    jurisdiction_code: Optional[str] = None
 
 
 class ReportRequest(BaseModel):
