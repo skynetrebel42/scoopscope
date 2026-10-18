@@ -6,12 +6,15 @@ You are operating on **ScoopScope** at `c:\Users\minhb\OneDrive\Desktop\Projects
 
 ## 1. Primary Documentation & Orientation Order
 
-Before proposing plans or editing code, read the core playbook files in this order:
+Before proposing plans or editing code, read the core playbook files strictly in this order:
 
-1. **[PROJECT_HANDOFF.md](file:///c:/Users/minhb/OneDrive/Desktop/Projects/ScoopScope/PROJECT_HANDOFF.md)**: Project context, vision, 3G trifecta roles, launch/test commands, decision log, and shipped milestones.
-2. **[ARCHITECTURE.md](file:///c:/Users/minhb/OneDrive/Desktop/Projects/ScoopScope/ARCHITECTURE.md)**: Codebase map and safety levels (HIGH CAUTION, MODERATE CAUTION, SAFE TO EDIT). Check safety protocols before touching any file.
-3. **[KNOWN_ISSUES.md](file:///c:/Users/minhb/OneDrive/Desktop/Projects/ScoopScope/KNOWN_ISSUES.md)**: Active deprecations, open warnings, and backlog candidates.
-4. **[docs/HOW_IT_WORKS.md](file:///c:/Users/minhb/OneDrive/Desktop/Projects/ScoopScope/docs/HOW_IT_WORKS.md)**: Plain-English architecture, claim lifecycle walkthrough, and glossary.
+1. **[AGENTS.md](file:///c:/Users/minhb/OneDrive/Desktop/Projects/ScoopScope/AGENTS.md)**: Hard evidence rules, security boundaries, and core operating principles.
+2. **[.handoff-builder.md](file:///c:/Users/minhb/OneDrive/Desktop/Projects/ScoopScope/.handoff-builder.md)**: Active baseline state, latest commit hash, test count, and next active spec.
+3. **[PROJECT_HANDOFF.md](file:///c:/Users/minhb/OneDrive/Desktop/Projects/ScoopScope/PROJECT_HANDOFF.md)**: Project context, vision, 3G trifecta roles, launch/test commands, decision log, and shipped milestones.
+4. **Active Spec in `docs/specs/`**: The single active milestone spec referenced by `.handoff-builder.md`.
+5. **[ARCHITECTURE.md](file:///c:/Users/minhb/OneDrive/Desktop/Projects/ScoopScope/ARCHITECTURE.md)**: Codebase map and safety levels (HIGH CAUTION, MODERATE CAUTION, SAFE TO EDIT). Check safety protocols before touching any file.
+6. **[KNOWN_ISSUES.md](file:///c:/Users/minhb/OneDrive/Desktop/Projects/ScoopScope/KNOWN_ISSUES.md)**: Active deprecations, open warnings, and backlog candidates.
+7. **[docs/HOW_IT_WORKS.md](file:///c:/Users/minhb/OneDrive/Desktop/Projects/ScoopScope/docs/HOW_IT_WORKS.md)**: Plain-English architecture, claim lifecycle walkthrough, and glossary.
 
 > [!CAUTION]
 > **Never read `docs/archive/`**. Files in that directory are historical references and obsolete reviews. Loading them wastes context and risks outdated assumptions.
@@ -48,3 +51,5 @@ These rules govern all phases of development. Never weaken, bypass, or compromis
    - Stop at the **Push Gate** after committing locally: present the commit list and wait for Owner approval before running `git push`.
 7. **Report Convention**:
    - Always end every report with a dedicated section headed `In plain terms:` (1–2 plain-English, jargon-free sentences explaining what the user will notice).
+8. **Mandatory Milestone Close-Out Rule**:
+   - At the close of every milestone, move the finished spec from `docs/specs/` to `docs/archive/` and update `PROJECT_HANDOFF.md`, `docs/HOW_IT_WORKS.md`, `.handoff-builder.md`, and `.handoff-planner.md` with the latest commit hash, passing test count, shipped summary, and next active spec path. Never leave finished specs in `docs/specs/`.

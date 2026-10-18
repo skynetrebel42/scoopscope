@@ -91,6 +91,10 @@ Here are four technical terms ScoopScope uses and why they matter to you:
 - **What it is**: A modern web standard where a link includes a special snippet of text at the end.
 - **Why it matters**: When you click the link in Chrome or Edge, the browser doesn't just open the page—it automatically scrolls right to the exact paragraph and highlights the quote in yellow.
 
+### 5. Official Jurisdiction Guardrails (LA City vs. County)
+- **What it is**: Deterministic classification of government websites (e.g., `lacity.gov` for City of LA vs `lacounty.gov` for LA County) that flags civic ambiguity and boosts matching official records.
+- **Why it matters**: Local news and social posts frequently confuse City hall with County supervisors. ScoopScope prevents conflating municipal ordinances with countywide health or sheriff policies.
+
 ---
 
 ## 4. Shipped Milestones Log
@@ -104,3 +108,5 @@ Here are four technical terms ScoopScope uses and why they matter to you:
 - **Milestone 007 (3B)**: Sticky floating inquiry bar, Cornell notes paired layout, defensible date provenance, `-filetype:pdf` filtering, multi-tab workspace, and Custom Report Studio.
 - **Milestone 008 (4A)**: Playbook repo standardization, documentation realignment, and `.gitignore` hygiene fix (Milestone 4A complete and published).
 - **Milestone 009 (4A Post-Ship Cleanup)**: Archived completed 4A spec and legacy status file to `docs/archive/`, cleaned root scratch files, and verified clean repo state.
+- **Milestone 010 (4C)**: Los Angeles City vs. County jurisdiction guardrails, deterministic official domain classification, civic clarification cards, Cornell notes jurisdiction badges, and 92 new tests (`94baeb2`, 256 passing tests total).
+- **Milestone 011 (4C Close-Out & Handoff Initialization)**: Cumulative handoff architecture (`.handoff-builder.md` and `.handoff-planner.md`), mandatory close-out rules in `AGENTS.md`, and staged Milestone 4D spec.

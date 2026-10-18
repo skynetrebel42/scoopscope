@@ -1,10 +1,10 @@
 # ScoopScope — Project Handoff & Architecture Baseline
 
-**Document Version**: 1.0  
-**Current Milestone**: Milestone 4A Complete (Decisions 008 & 009)  
-**Baseline Commit**: `857c410`  
+**Document Version**: 1.1  
+**Current Milestone**: Milestone 4C Complete (Decisions 010 & 011)  
+**Baseline Commit**: `94baeb2`  
 **Workspace Root**: `c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope`  
-**Test Suite Status**: 164 passed offline (100% passing)  
+**Test Suite Status**: 256 passed offline (100% passing) across 11 test suites  
 
 ---
 
@@ -114,6 +114,16 @@ All contributors and agents must uphold these non-negotiable rules:
   - Standardized repository documentation (`PROJECT_HANDOFF.md`, `ARCHITECTURE.md`, `KNOWN_ISSUES.md`, `docs/HOW_IT_WORKS.md`), streamlined `AGENTS.md`, and fixed `.gitignore` gaps (`.pytest_cache/`, `*.patch`, `manifest.txt`).
 - **Decision 009 (Milestone 4A Post-Ship Cleanup)**: Spec Archival & Legacy Status Migration
   - Archived completed 4A spec and legacy `STATUS.md` to `docs/archive/`, deleted untracked root scratch files, and affirmed `PROJECT_HANDOFF.md` as sole source of truth.
+- **Decision 010 (Milestone 4C)**: Los Angeles City vs. County Jurisdiction Guardrails
+  - Implemented deterministic official domain classification in `backend/app/jurisdiction.py` recognizing LA City (`lacity.gov`), LA County (`lacounty.gov`), State of California (`ca.gov`), and regional transit/utility agencies.
+  - Added heuristic civic ambiguity detection in `/api/claims/clarify`, presenting users with clear jurisdiction clarification cards and options.
+  - Boosted research search ranking in `backend/app/research.py` for verified official jurisdiction domains matching confirmed scope.
+  - Displayed visual jurisdiction badges in Cornell Notes evidence cards and Works Cited table.
+  - Added 92 exhaustive offline unit and integration tests in `backend/tests/test_la_jurisdiction.py`, elevating the test suite to 256 passing tests across 11 test suites.
+- **Decision 011 (Milestone 4C Close-Out & Cumulative Handoff Initialization)**: Cumulative Handoff System & Milestone 4D Spec
+  - Established two cumulative handoff files: `.handoff-builder.md` (active baseline commit, test counts, high-caution rules, next active spec, bootstrap command) and `.handoff-planner.md` (cumulative system summary and roadmap for Gemini/Argon chat prompt priming).
+  - Enforced the Mandatory Milestone Close-Out Rule in `AGENTS.md` and updated `GEMINI.md` startup read sequence.
+  - Archived completed 4C spec to `docs/archive/milestone-4c-la-jurisdiction-guardrails.md` and staged Milestone 4D spec (`docs/specs/milestone-4d-report-export-and-citations.md`).
 
 ---
 
@@ -148,4 +158,14 @@ All contributors and agents must uphold these non-negotiable rules:
    - Multi-tab session and claim workspace with custom report generation (`/api/report`).
 8. **Milestone 008 (Milestone 4A)**: Playbook Repo Standardization & Workspace Hygiene
    - Canonical playbook documentation aligned, root files streamlined, untracked scratch purged, and test suite 100% passing.
+9. **Milestone 010 (Milestone 4C)**: Los Angeles City vs. County Jurisdiction Guardrails
+   - Deterministic official domain classification (`backend/app/jurisdiction.py`) separating City (`lacity.gov`), County (`lacounty.gov`), State (`ca.gov`), and Regional agencies.
+   - Ambiguity detection and civic clarification cards in `/api/claims/clarify`.
+   - Domain-boosted search ranking in `backend/app/research.py`.
+   - Visual jurisdiction badges in Cornell Notes UI and Works Cited table.
+   - Commit `94baeb2`, 256 tests passing across 11 test suites.
+10. **Milestone 011 (Milestone 4C Close-Out & Handoff Initialization)**: Cumulative Handoff System & Milestone 4D Spec
+    - Cumulative handoff artifacts (`.handoff-builder.md` and `.handoff-planner.md`) guaranteeing seamless context handoff between fresh Argon/Antigravity sessions.
+    - Mandatory milestone close-out rule in `AGENTS.md` and updated startup read sequence.
+    - Archived 4C spec to `docs/archive/` and staged Milestone 4D active spec (`docs/specs/milestone-4d-report-export-and-citations.md`).
 
