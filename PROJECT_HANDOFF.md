@@ -1,10 +1,10 @@
 # ScoopScope — Project Handoff & Architecture Baseline
 
-**Document Version**: 1.1  
-**Current Milestone**: Milestone 4C Complete (Decisions 010 & 011)  
-**Baseline Commit**: `94baeb2`  
+**Document Version**: 1.2  
+**Current Milestone**: Milestone 4D Complete (Decisions 012 & 013)  
+**Baseline Commit**: `0f5dddf`  
 **Workspace Root**: `c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope`  
-**Test Suite Status**: 256 passed offline (100% passing) across 11 test suites  
+**Test Suite Status**: 276 passed offline (100% passing) across 11 test suites  
 
 ---
 
@@ -35,8 +35,8 @@ The project operates under the **3G Trifecta** collaborative development model:
 | Role | Entity | Responsibilities |
 |---|---|---|
 | **Owner** | **Minh** | Vision, priorities, milestone approval, repository ownership, push gatekeeper. |
-| **Planner** | **Gemini Chat** | System architecture, specs, milestone reviews, decision logging, prompt design. |
-| **Builder** | **Antigravity** | Workspace execution, implementation, test suite maintenance, offline verification, git hygiene. |
+| **Planner** | **Argon in Gemini App** | System architecture, specs, milestone reviews, decision logging, prompt design. |
+| **Builder** | **Flash 3.8 in Antigravity** | Workspace execution, implementation, test suite maintenance, offline verification, git hygiene. |
 
 ### Local Launch Commands
 
@@ -124,6 +124,15 @@ All contributors and agents must uphold these non-negotiable rules:
   - Established two cumulative handoff files: `.handoff-builder.md` (active baseline commit, test counts, high-caution rules, next active spec, bootstrap command) and `.handoff-planner.md` (cumulative system summary and roadmap for Gemini/Argon chat prompt priming).
   - Enforced the Mandatory Milestone Close-Out Rule in `AGENTS.md` and updated `GEMINI.md` startup read sequence.
   - Archived completed 4C spec to `docs/archive/milestone-4c-la-jurisdiction-guardrails.md` and staged Milestone 4D spec (`docs/specs/milestone-4d-report-export-and-citations.md`).
+- **Decision 012**: 3G Trifecta Model Specialization (Argon in Gemini App = Planner, Flash 3.8 in Antigravity = Builder)
+  - Formalized agent roles: Planner operates via Argon in Gemini web chat for architectural design, user alignment, and spec generation; Builder operates via Flash 3.8 in Antigravity IDE for autonomous, test-driven implementation, strict offline verification, and git hygiene.
+- **Decision 013 (Milestone 4D)**: Report Studio Export, Deterministic Citation Formatter, and Municipal Jurisdiction Ranking
+  - Added one-click export actions to Custom Report Studio (Copy Markdown, Copy Plain Text, Download `.md` Report with dynamic timestamping and clipboard fallback).
+  - Implemented deterministic Citation Style Selector offering Standard Numbered, APA (7th ed, strict `(n.d.)` on absent dates), and MLA (9th ed, strict `Accessed <date>` on absent dates) with zero author/date fabrication and automatic bracketed jurisdiction tags (`[LA City Official]`, etc.).
+  - Enforced deterministic works cited replacement in `gemini_adapter.py` to prevent LLM hallucination of publisher names or unstandardized citation formats.
+  - Expanded `classify_source_jurisdiction` in `backend/app/jurisdiction.py` to recognize 11 independent LA County incorporated municipalities (`la_local_city`) including Norwalk, Long Beach, Pasadena, Santa Monica, Glendale, Culver City, Beverly Hills, Torrance, Inglewood, Burbank, and Pomona.
+  - Boosted matching official municipal domains ahead in `backend/app/research.py` candidate search results.
+  - Elevated test suite to 276 passing tests offline across 11 test suites; committed at `0f5dddf`.
 
 ---
 
@@ -168,4 +177,9 @@ All contributors and agents must uphold these non-negotiable rules:
     - Cumulative handoff artifacts (`.handoff-builder.md` and `.handoff-planner.md`) guaranteeing seamless context handoff between fresh Argon/Antigravity sessions.
     - Mandatory milestone close-out rule in `AGENTS.md` and updated startup read sequence.
     - Archived 4C spec to `docs/archive/` and staged Milestone 4D active spec (`docs/specs/milestone-4d-report-export-and-citations.md`).
+11. **Milestone 012 (Milestone 4D)**: Report Studio Export, Citation Styles, & Municipal Jurisdiction Ranking
+    - One-click report export actions (Copy Markdown, Copy Plain Text, Download `.md` Report with dynamic timestamping).
+    - Deterministic citation formatting (Standard Numbered, APA 7th ed with strict `(n.d.)`, MLA 9th ed with strict `Accessed <date>`) with zero fabrication and bracketed jurisdiction tags.
+    - LA County independent municipal domain classification (`la_local_city`) and research search candidate prioritization.
+    - Commit `0f5dddf`, 276 tests passing across 11 test suites.
 
