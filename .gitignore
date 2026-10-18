@@ -2,7 +2,7 @@
 .env
 backend/.env
 
-# Python
+# Python & Testing
 __pycache__/
 *.pyc
 *.pyo
@@ -12,6 +12,12 @@ venv/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
+backend/.pytest_cache/
+
+# Patches & Working Files
+*.patch
+manifest.txt
 
 # Archives
 *.zip
