@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import urllib.parse
 import uuid
 from datetime import datetime, timezone
@@ -23,7 +24,10 @@ from google import genai
 from google.genai import types as genai_types
 
 from app.config import settings
-from app.jurisdiction import detect_la_jurisdiction_ambiguity
+from app.jurisdiction import (
+    classify_source_jurisdiction,
+    detect_la_jurisdiction_ambiguity,
+)
 from app.models import (
     ClaimExtractionResultLLM,
     ClaimType,
@@ -661,6 +665,16 @@ class GeminiAdapter:
                     clean_md = clean_md[:-3]
                 clean_md = clean_md.strip()
 
+                if req.include_works_cited:
+                    collected_sources = _collect_unique_sources(req)
+                    clean_md = re.sub(
+                        r"\n+(?:##\s+Works\s+Cited|##\s+Bibliography|\*\*\*\s*\n+##\s+Works\s+Cited).*$",
+                        "",
+                        clean_md,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    ).strip()
+                    clean_md += "\n\n" + format_works_cited_section(collected_sources, req.citation_style)
+
                 title_map = {
                     "objective_brief": f"Executive Briefing: {req.inquiry_title}",
                     "cornell_study": f"Cornell Study Guide: {req.inquiry_title}",
@@ -692,6 +706,73 @@ def _extract_domain(url: str) -> str:
         return url
 
 
+def _collect_unique_sources(req: ReportRequest) -> dict[str, SourceMetadataItem]:
+    """Collate unique source records preserving verified titles, dates, and jurisdiction tags."""
+    from app.models import SourceMetadataItem
+
+    unique_sources: dict[str, SourceMetadataItem] = {}
+    for s in req.sources:
+        unique_sources[s.url] = s
+    for p in req.selected_passages:
+        if p.source_url not in unique_sources:
+            unique_sources[p.source_url] = SourceMetadataItem(
+                url=p.source_url,
+                domain=_extract_domain(p.source_url),
+                title=p.source_title,
+                publication_date=p.publication_date,
+                jurisdiction_tag=p.jurisdiction_tag,
+                jurisdiction_code=p.jurisdiction_code,
+            )
+        else:
+            if not unique_sources[p.source_url].jurisdiction_tag and p.jurisdiction_tag:
+                unique_sources[p.source_url].jurisdiction_tag = p.jurisdiction_tag
+                unique_sources[p.source_url].jurisdiction_code = p.jurisdiction_code
+            if not unique_sources[p.source_url].title and p.source_title:
+                unique_sources[p.source_url].title = p.source_title
+            if not unique_sources[p.source_url].publication_date and p.publication_date:
+                unique_sources[p.source_url].publication_date = p.publication_date
+    return unique_sources
+
+
+def format_works_cited_section(
+    unique_sources: dict[str, SourceMetadataItem],
+    citation_style: str | None = "standard",
+) -> str:
+    """Format Works Cited deterministically from verified metadata without hallucinating authors or dates."""
+    style = (citation_style or "standard").lower()
+    lines = ["## Works Cited & Bibliography\n"]
+    if not unique_sources:
+        lines.append("*No sources recorded.*")
+        return "\n".join(lines)
+
+    for idx, (url, s) in enumerate(unique_sources.items(), start=1):
+        domain = s.domain or _extract_domain(url)
+        title = s.title or domain
+        pub = s.publication_date
+        ret = s.retrieval_date or "Retrieved during investigation"
+        juris_label = s.jurisdiction_tag
+        if not juris_label:
+            j_info = classify_source_jurisdiction(url)
+            if j_info:
+                juris_label = j_info["label"]
+        juris_badge = f" [{juris_label}]" if juris_label else ""
+
+        if style == "apa":
+            # APA 7th ed: Author/Title. (Year or n.d.). Site Name. URL [Jurisdiction]
+            date_str = f"({pub[:4]})" if pub and len(pub) >= 4 else "(n.d.)"
+            lines.append(f"{idx}. {title}. {date_str}. *{domain}*. [{url}]({url}){juris_badge}")
+        elif style == "mla":
+            # MLA 9th ed: "Title." Site Name, Date, URL. Accessed Date. [Jurisdiction]
+            date_str = f"{pub}, " if pub else ""
+            lines.append(f'{idx}. "{title}." *{domain}*, {date_str}[{url}]({url}). Accessed {ret}.{juris_badge}')
+        else:  # standard numbered
+            pub_str = pub or "Date unknown"
+            lines.append(f"{idx}. **{domain}** — [{title}]({url}){juris_badge}")
+            lines.append(f"   - *Published*: {pub_str} | *Retrieval*: {ret}")
+
+    return "\n".join(lines)
+
+
 def build_deterministic_custom_report(req: ReportRequest) -> ReportResponse:
     """Deterministic offline/fallback custom report and evidence bank generator."""
     vibe = req.report_vibe or "objective_brief"
@@ -711,20 +792,7 @@ def build_deterministic_custom_report(req: ReportRequest) -> ReportResponse:
     }
     vibe_desc = vibe_descriptions.get(vibe, "Comprehensive factual evidence report.")
 
-    from app.models import SourceMetadataItem
-
-    unique_sources: dict[str, SourceMetadataItem] = {}
-    for s in req.sources:
-        unique_sources[s.url] = s
-    for p in req.selected_passages:
-        if p.source_url not in unique_sources:
-            unique_sources[p.source_url] = SourceMetadataItem(
-                url=p.source_url,
-                domain=_extract_domain(p.source_url),
-                title=p.source_title,
-                publication_date=p.publication_date,
-            )
-
+    unique_sources = _collect_unique_sources(req)
     quote_count = len(req.selected_passages)
     source_count = len(unique_sources)
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -823,17 +891,7 @@ def build_deterministic_custom_report(req: ReportRequest) -> ReportResponse:
 
     # 4. Works Cited
     if req.include_works_cited:
-        md_lines.append("## Works Cited & Bibliography\n")
-        if unique_sources:
-            for idx, (url, s) in enumerate(unique_sources.items(), start=1):
-                domain = s.domain or _extract_domain(url)
-                title = s.title or domain
-                pub = s.publication_date or "Date unknown"
-                ret = s.retrieval_date or "Retrieved during investigation"
-                md_lines.append(f"{idx}. **{domain}** — [{title}]({url})")
-                md_lines.append(f"   - *Published*: {pub} | *Retrieval*: {ret}")
-        else:
-            md_lines.append("*No sources recorded.*")
+        md_lines.append(format_works_cited_section(unique_sources, req.citation_style))
 
     return ReportResponse(
         report_title=report_title,

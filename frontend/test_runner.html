@@ -226,12 +226,21 @@
                 if (handler) {
                     return handler(body);
                 }
+                const style = body.citation_style || "standard";
+                let worksCitedContent = "";
+                if (style === "apa") {
+                    worksCitedContent = "## Works Cited & Bibliography\n1. European Commission Food Safety Audit. (2024). *ec.europa.eu*. [https://ec.europa.eu/food/safety/beef-safety](https://ec.europa.eu/food/safety/beef-safety)";
+                } else if (style === "mla") {
+                    worksCitedContent = '## Works Cited & Bibliography\n1. "European Commission Food Safety Audit." *ec.europa.eu*, 2024-09-15, [https://ec.europa.eu/food/safety/beef-safety](https://ec.europa.eu/food/safety/beef-safety). Accessed 2024-10-16T18:00:00Z.';
+                } else {
+                    worksCitedContent = "## Works Cited & Bibliography\n1. **ec.europa.eu** — [European Commission Food Safety Audit](https://ec.europa.eu/food/safety/beef-safety)\n   - *Published*: 2024-09-15 | *Retrieval*: 2024-10-16T18:00:00Z";
+                }
                 return {
                     ok: true,
                     status: 200,
                     json: async () => ({
                         report_title: body.inquiry_title || "Investigation Findings",
-                        markdown_content: `# ${body.inquiry_title}\n\n## Topic & Inquiry Synthesis\nEuropean food safety authorities suspended beef import certifications from three packaging plants.\n\n## Structured Evidence Bank\n> "European food safety authorities suspended beef import certifications from three packaging plants following pesticide residue detections."\n\n## Works Cited\n- [European Commission Food Safety Audit](https://ec.europa.eu/food/safety/beef-safety) (Domain: ec.europa.eu, Published: 2024-09-15)`,
+                        markdown_content: `# ${body.inquiry_title}\n\n## Topic & Inquiry Synthesis\nEuropean food safety authorities suspended beef import certifications from three packaging plants.\n\n## Structured Evidence Bank\n> "European food safety authorities suspended beef import certifications from three packaging plants following pesticide residue detections."\n\n${worksCitedContent}`,
                         evidence_count: (body.selected_passages || []).length,
                         sources_count: (body.sources || []).length,
                         generated_at: new Date().toISOString(),
@@ -1624,12 +1633,53 @@
             assert(!counterBadge.textContent.includes("0 quotes"), "Select All re-selects quotes");
             assert(quoteCheckbox.checked === true, "Quote checkbox is re-checked after Select All click");
 
-            // Test Report Vibe Selector & Sections
+            // Test Report Vibe & Citation Style Selectors
             const vibeSelect = reportPanel.querySelector(".report-vibe-select");
             assert(vibeSelect !== null, "Report vibe selector exists");
             assert(vibeSelect.options.length === 4, "4 report vibe options exist");
+
+            const citationSelect = reportPanel.querySelector(".citation-style-select");
+            assert(citationSelect !== null, "Citation style selector (.citation-style-select) exists");
+            assert(citationSelect.options.length === 3, "3 citation styles exist (standard, apa, mla)");
+
             const sectionCheckboxes = reportPanel.querySelectorAll(".report-sections-grid input[type='checkbox']");
             assert(sectionCheckboxes.length === 4, "4 section checkboxes exist (summary, evidence_bank, works_cited, open_questions)");
+
+            // Unit tests for Citation Formatters & Plain Text Stripper
+            assert(typeof window.formatCitation === "function", "window.formatCitation helper exposed");
+            assert(typeof window.stripMarkdownToPlainText === "function", "window.stripMarkdownToPlainText helper exposed");
+
+            const sampleSourceWithDate = {
+                url: "https://norwalkca.gov/council-resolution",
+                domain: "norwalkca.gov",
+                title: "Norwalk City Council Resolution",
+                publication_date: "2024-08-06",
+                retrieval_date: "2024-10-18T10:00:00Z",
+                jurisdiction_tag: "LA Local City Official"
+            };
+            const sampleSourceNoDate = {
+                url: "https://hcd.ca.gov/notice",
+                domain: "hcd.ca.gov",
+                title: "HCD Notice",
+                publication_date: null,
+                retrieval_date: "2024-10-18T12:00:00Z",
+                jurisdiction_tag: "CA State Official"
+            };
+
+            const citStd = window.formatCitation(sampleSourceWithDate, "standard");
+            assert(citStd.includes("norwalkca.gov") && citStd.includes("[LA Local City Official]"), "Standard citation includes domain and jurisdiction tag");
+
+            const citApaDate = window.formatCitation(sampleSourceWithDate, "apa");
+            assert(citApaDate.includes("(2024)") && citApaDate.includes("[LA Local City Official]"), "APA citation formats year with date");
+
+            const citApaNoDate = window.formatCitation(sampleSourceNoDate, "apa");
+            assert(citApaNoDate.includes("(n.d.)") && !citApaNoDate.includes("null"), "APA citation explicitly formats missing date as (n.d.) without fabrication");
+
+            const citMlaNoDate = window.formatCitation(sampleSourceNoDate, "mla");
+            assert(citMlaNoDate.includes("Accessed") && citMlaNoDate.includes("[CA State Official]"), "MLA citation includes Accessed date and jurisdiction tag");
+
+            const strippedPlain = window.stripMarkdownToPlainText("# Main Title\n\n**Bold text** with [Link Name](https://example.com)");
+            assert(!strippedPlain.includes("#") && !strippedPlain.includes("**") && strippedPlain.includes("Link Name (https://example.com)"), "stripMarkdownToPlainText cleanly converts markdown to plain text");
 
             // Test Report Generation
             const generateBtn = reportPanel.querySelector(".btn-generate-report");
@@ -1641,8 +1691,15 @@
             assert(outputCard !== null, "Report output card exists");
             assert(!outputCard.classList.contains("hidden"), "Report output card visible after generation");
             assert(outputCard.querySelector(".btn-copy-report") !== null, "Copy Markdown button rendered");
+            assert(outputCard.querySelector(".btn-copy-plaintext-report") !== null, "Copy Plain Text button rendered");
+            assert(outputCard.querySelector(".btn-download-report") !== null, "Download .md Report button rendered");
             assert(outputCard.querySelector(".btn-print-report") !== null, "Print / Save PDF button rendered");
             assert(outputCard.textContent.includes("Topic & Inquiry Synthesis"), "Report synthesis section rendered");
+
+            // Test dynamic Citation Style switching on generated report
+            citationSelect.value = "apa";
+            citationSelect.dispatchEvent(new Event("change"));
+            assert(outputCard.textContent.includes("Works Cited"), "Works Cited section preserved on citation style switch");
 
             // (4) Explore Further (Actionable Chips & Multi-Tab Creation)
             const exploreCard = researchContainer.querySelector(".explore-further-card");

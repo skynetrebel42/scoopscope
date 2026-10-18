@@ -2010,7 +2010,8 @@ body::before {
     color: var(--text-secondary);
 }
 
-.report-vibe-select {
+.report-vibe-select,
+.report-citation-select {
     background: var(--bg-input);
     border: 1px solid var(--border-input);
     border-radius: var(--radius-sm);
@@ -2023,7 +2024,8 @@ body::before {
     transition: border-color var(--transition);
 }
 
-.report-vibe-select:focus {
+.report-vibe-select:focus,
+.report-citation-select:focus {
     border-color: var(--accent);
 }
 

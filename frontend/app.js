@@ -908,6 +908,82 @@
         });
     }
 
+    // --- Milestone 4D Report Export & Citation Helpers ---
+    function stripMarkdownToPlainText(md) {
+        if (!md) return "";
+        return md
+            .replace(/```[\s\S]*?```/g, "")
+            .replace(/^#{1,6}\s+(.*)$/gm, "$1")
+            .replace(/\*\*(.*?)\*\*/g, "$1")
+            .replace(/\*(.*?)\*/g, "$1")
+            .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
+            .replace(/^>\s+/gm, "")
+            .replace(/^[-*]\s+/gm, "• ")
+            .replace(/^[*-]{3,}$/gm, "---")
+            .trim();
+    }
+
+    function downloadFile(filename, content, mimeType) {
+        const blob = new Blob([content], { type: mimeType || "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => { URL.revokeObjectURL(url); }, 1000);
+    }
+
+    function formatCitation(source, style) {
+        let domain = source.domain;
+        if (!domain && source.url) {
+            try {
+                domain = new URL(source.url, "http://localhost").hostname.replace(/^www\./, "");
+            } catch (_) {
+                domain = source.url;
+            }
+        }
+        const title = source.title || domain || "Source Record";
+        const pub = source.publication_date;
+        const ret = source.retrieval_date || "Retrieved during investigation";
+        const jurisBadge = source.jurisdiction_tag ? ` [${source.jurisdiction_tag}]` : "";
+        const cleanStyle = (style || "standard").toLowerCase();
+
+        if (cleanStyle === "apa") {
+            const dateStr = (pub && pub.length >= 4) ? `(${pub.slice(0, 4)})` : "(n.d.)";
+            return `${title}. ${dateStr}. *${domain}*. [${source.url}](${source.url})${jurisBadge}`;
+        } else if (cleanStyle === "mla") {
+            const dateStr = pub ? `${pub}, ` : "";
+            return `"${title}." *${domain}*, ${dateStr}[${source.url}](${source.url}). Accessed ${ret}.${jurisBadge}`;
+        } else {
+            const pubStr = pub || "Date unknown";
+            return `**${domain}** — [${title}](${source.url})${jurisBadge}\n   - *Published*: ${pubStr} | *Retrieval*: ${ret}`;
+        }
+    }
+
+    function updateReportWorksCited(markdown, sources, style) {
+        if (!markdown) return "";
+        const worksCitedLines = ["## Works Cited & Bibliography\n"];
+        if (!sources || sources.length === 0) {
+            worksCitedLines.push("*No sources recorded.*");
+        } else {
+            sources.forEach((s, idx) => {
+                worksCitedLines.push(`${idx + 1}. ${formatCitation(s, style)}`);
+            });
+        }
+        const worksCitedText = worksCitedLines.join("\n");
+        if (/(?:##\s+Works\s+Cited|##\s+Bibliography)/i.test(markdown)) {
+            return markdown.replace(/(?:##\s+Works\s+Cited|##\s+Bibliography)[\s\S]*$/i, worksCitedText);
+        }
+        return markdown + "\n\n" + worksCitedText;
+    }
+
+    // Expose helpers globally for test runner inspection
+    window.stripMarkdownToPlainText = stripMarkdownToPlainText;
+    window.formatCitation = formatCitation;
+    window.updateReportWorksCited = updateReportWorksCited;
+
     // --- Report & Evidence Bank Studio Panel Builder ---
     function renderReportBuilderPanel(claim, data) {
         const reportPanel = document.createElement("div");
@@ -960,7 +1036,7 @@
         header.appendChild(counterWrap);
         reportPanel.appendChild(header);
 
-        // Controls grid: Vibe Selector & Section Checkboxes
+        // Controls grid: Vibe Selector, Citation Style Selector & Section Checkboxes
         const controls = document.createElement("div");
         controls.className = "report-builder-controls";
 
@@ -988,6 +1064,30 @@
         });
         vibeGroup.appendChild(vibeSelect);
         controls.appendChild(vibeGroup);
+
+        // Citation Style Selector (Milestone 4D Upgrade)
+        const citationGroup = document.createElement("div");
+        citationGroup.className = "report-control-group";
+        const citationLabel = document.createElement("label");
+        citationLabel.className = "report-control-label";
+        citationLabel.textContent = "Citation Style (Works Cited)";
+        citationGroup.appendChild(citationLabel);
+
+        const citationSelect = document.createElement("select");
+        citationSelect.className = "report-citation-select citation-style-select";
+        const citationOptions = [
+            { value: "standard", label: "Standard Numbered — [1] Title — Domain (Date) [Jurisdiction]" },
+            { value: "apa", label: "APA (7th Edition) — Author/Title. (Year or n.d.). Site. URL [Jurisdiction]" },
+            { value: "mla", label: "MLA (9th Edition) — \"Title.\" Site, Date, URL. Accessed Date [Jurisdiction]" },
+        ];
+        citationOptions.forEach(optData => {
+            const opt = document.createElement("option");
+            opt.value = optData.value;
+            opt.textContent = optData.label;
+            citationSelect.appendChild(opt);
+        });
+        citationGroup.appendChild(citationSelect);
+        controls.appendChild(citationGroup);
 
         // Section checkboxes
         const sectionsGroup = document.createElement("div");
@@ -1049,6 +1149,18 @@
         copyBtn.textContent = "Copy Markdown";
         outputActions.appendChild(copyBtn);
 
+        const copyPlainBtn = document.createElement("button");
+        copyPlainBtn.type = "button";
+        copyPlainBtn.className = "btn-report-action btn-copy-plaintext-report";
+        copyPlainBtn.textContent = "Copy Plain Text";
+        outputActions.appendChild(copyPlainBtn);
+
+        const downloadBtn = document.createElement("button");
+        downloadBtn.type = "button";
+        downloadBtn.className = "btn-report-action btn-download-report";
+        downloadBtn.textContent = "Download .md Report";
+        outputActions.appendChild(downloadBtn);
+
         const printBtn = document.createElement("button");
         printBtn.type = "button";
         printBtn.className = "btn-report-action btn-print-report";
@@ -1067,14 +1179,40 @@
         reportPanel.appendChild(outputCard);
 
         let lastGeneratedMarkdown = "";
+        let activeReportSources = [];
 
         copyBtn.addEventListener("click", async () => {
             if (!lastGeneratedMarkdown) return;
             try {
                 await navigator.clipboard.writeText(lastGeneratedMarkdown);
             } catch (_) {}
-            copyBtn.textContent = "Copied!";
+            copyBtn.textContent = "Copied Markdown!";
             setTimeout(() => { copyBtn.textContent = "Copy Markdown"; }, 1500);
+        });
+
+        copyPlainBtn.addEventListener("click", async () => {
+            if (!lastGeneratedMarkdown) return;
+            const plain = stripMarkdownToPlainText(lastGeneratedMarkdown);
+            try {
+                await navigator.clipboard.writeText(plain);
+            } catch (_) {}
+            copyPlainBtn.textContent = "Copied Plain Text!";
+            setTimeout(() => { copyPlainBtn.textContent = "Copy Plain Text"; }, 1500);
+        });
+
+        downloadBtn.addEventListener("click", () => {
+            if (!lastGeneratedMarkdown) return;
+            const filename = `scoopscope-report-${Date.now()}.md`;
+            downloadFile(filename, lastGeneratedMarkdown, "text/markdown");
+            downloadBtn.textContent = "Downloaded!";
+            setTimeout(() => { downloadBtn.textContent = "Download .md Report"; }, 1500);
+        });
+
+        citationSelect.addEventListener("change", () => {
+            if (lastGeneratedMarkdown && activeReportSources.length > 0) {
+                lastGeneratedMarkdown = updateReportWorksCited(lastGeneratedMarkdown, activeReportSources, citationSelect.value);
+                outputBody.innerHTML = renderMarkdown(lastGeneratedMarkdown);
+            }
         });
 
         generateBtn.addEventListener("click", async () => {
@@ -1090,6 +1228,7 @@
             const reqBody = {
                 inquiry_title: currentConfirmedScopeQuestion || claim.normalized_assertion || claim.original_wording || "Investigation Findings",
                 report_vibe: vibeSelect.value,
+                citation_style: citationSelect.value,
                 include_summary: chkSummary.input.checked,
                 include_evidence_bank: chkEvidenceBank.input.checked,
                 include_works_cited: chkWorksCited.input.checked,
@@ -1104,6 +1243,9 @@
                     publication_date: item.passage.publication_date,
                     updated_date: item.passage.updated_date,
                     retrieval_timestamp: item.passage.retrieval_timestamp,
+                    source_title: item.passage.source_title,
+                    jurisdiction_tag: item.passage.jurisdiction_tag,
+                    jurisdiction_code: item.passage.jurisdiction_code,
                 })),
                 sources: (data.retrieved_sources || []).map(s => ({
                     url: s.final_url || s.initial_url,
@@ -1112,6 +1254,8 @@
                     publication_date: s.publication_date,
                     retrieval_date: s.retrieval_timestamp,
                     status: s.status,
+                    jurisdiction_tag: s.jurisdiction_tag,
+                    jurisdiction_code: s.jurisdiction_code,
                 })),
             };
 
@@ -1126,6 +1270,7 @@
                     alert(repData.detail || "Report generation failed.");
                     return;
                 }
+                activeReportSources = reqBody.sources;
                 lastGeneratedMarkdown = repData.markdown_content;
                 outputBody.innerHTML = renderMarkdown(repData.markdown_content);
                 outputCard.classList.remove("hidden");

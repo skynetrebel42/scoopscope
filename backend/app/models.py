@@ -291,6 +291,7 @@ class ResearchRequest(BaseModel):
     explicit_date: Optional[str] = Field(default=None, max_length=500)
     source_url: Optional[str] = Field(default=None, max_length=4096)
     override_query: Optional[str] = Field(default=None, max_length=500)
+    confirmed_scope_question: Optional[str] = Field(default=None, max_length=1000)
 
 
 class ResearchResponse(BaseModel):
@@ -354,6 +355,7 @@ class SourceMetadataItem(BaseModel):
 class ReportRequest(BaseModel):
     inquiry_title: str = Field(..., min_length=1, max_length=1000)
     report_vibe: str = Field(default="objective_brief")
+    citation_style: Optional[str] = Field(default="standard", max_length=50)
     include_summary: bool = True
     include_evidence_bank: bool = True
     include_works_cited: bool = True

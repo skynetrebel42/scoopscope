@@ -86,6 +86,26 @@ from app.search.provider import SearchProvider
         ("https://mwdh2o.com", "la_regional", "LA Regional Agency"),
         ("https://www.mwdh2o.com/water-supply", "la_regional", "LA Regional Agency"),
 
+        # LA Local City official domains (independent incorporated municipalities in LA County)
+        ("https://norwalk.org", "la_local_city", "LA Local City Official"),
+        ("https://www.norwalk.org/city-hall", "la_local_city", "LA Local City Official"),
+        ("https://norwalkca.gov", "la_local_city", "LA Local City Official"),
+        ("https://www.norwalkca.gov/council", "la_local_city", "LA Local City Official"),
+        ("https://longbeach.gov", "la_local_city", "LA Local City Official"),
+        ("https://police.longbeach.gov/alerts", "la_local_city", "LA Local City Official"),
+        ("https://santamonica.gov", "la_local_city", "LA Local City Official"),
+        ("https://library.santamonica.gov/books", "la_local_city", "LA Local City Official"),
+        ("https://cityofpasadena.net", "la_local_city", "LA Local City Official"),
+        ("https://water.cityofpasadena.net/service", "la_local_city", "LA Local City Official"),
+        ("https://glendaleca.gov", "la_local_city", "LA Local City Official"),
+        ("https://www.glendaleca.gov/government", "la_local_city", "LA Local City Official"),
+        ("https://culvercity.org", "la_local_city", "LA Local City Official"),
+        ("https://beverlyhills.org", "la_local_city", "LA Local City Official"),
+        ("https://torranceca.gov", "la_local_city", "LA Local City Official"),
+        ("https://inglewood.org", "la_local_city", "LA Local City Official"),
+        ("https://burbankca.gov", "la_local_city", "LA Local City Official"),
+        ("https://pomona.gov", "la_local_city", "LA Local City Official"),
+
         # CA State official
         ("https://ca.gov", "ca_state", "CA State Official"),
         ("https://www.ca.gov", "ca_state", "CA State Official"),
@@ -279,3 +299,59 @@ async def test_research_populates_jurisdiction_provenance_badges():
 
     assert hits_by_url["https://latimes.com/california/minimum-wage-la"].jurisdiction_code is None
     assert hits_by_url["https://latimes.com/california/minimum-wage-la"].jurisdiction_tag is None
+
+
+@pytest.mark.anyio
+async def test_jurisdiction_domain_ranking_in_research():
+    """When confirmed inquiry scope specifies a jurisdiction, matching official domains rank ahead of mismatched municipal domains."""
+    mock_hits = [
+        RawSearchResult(
+            url="https://latimes.com/news/norwalk-ordinance",
+            title="LA Times Report on Norwalk",
+            snippet="The city of Norwalk discussed housing rules.",
+            rank=1,
+            engine="test",
+        ),
+        RawSearchResult(
+            url="https://lacity.gov/city-rules",
+            title="City of Los Angeles Rules",
+            snippet="Rules governing the City of LA.",
+            rank=2,
+            engine="test",
+        ),
+        RawSearchResult(
+            url="https://norwalkca.gov/council-resolution",
+            title="City of Norwalk Official Resolution",
+            snippet="Official resolution passed by Norwalk City Council.",
+            rank=3,
+            engine="test",
+        ),
+        RawSearchResult(
+            url="https://longbeach.gov/council-item",
+            title="City of Long Beach Item",
+            snippet="Long Beach city council items.",
+            rank=4,
+            engine="test",
+        ),
+    ]
+
+    orchestrator = ResearchOrchestrator(
+        search_provider=DummyMockSearchProvider(mock_hits)
+    )
+
+    req = ResearchRequest(
+        submission_id="test_sub_norwalk",
+        claim_id="claim_norwalk_1",
+        claim_text="Did Norwalk City Council pass a moratorium on homeless shelters?",
+        confirmed_scope_question="Did Norwalk City Council pass a moratorium on homeless shelters?",
+    )
+
+    response = await orchestrator.research_claim(req)
+
+    # Check that retrieved sources or candidate pool prioritizes norwalkca.gov first
+    source_urls = [s.initial_url for s in response.retrieved_sources]
+    assert len(source_urls) >= 3
+    # norwalkca.gov must be ranked #1 ahead of latimes.com and ahead of mismatched lacity.gov / longbeach.gov
+    assert source_urls[0] == "https://norwalkca.gov/council-resolution"
+    assert "https://lacity.gov/city-rules" not in source_urls[:2]
+

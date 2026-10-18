@@ -27,6 +27,8 @@ from app.gemini_adapter import GeminiAdapter
 from app.jurisdiction import (
     classify_source_jurisdiction,
     detect_la_jurisdiction_ambiguity,
+    identify_jurisdiction_target,
+    get_jurisdiction_rank_priority,
 )
 from app.models import ResearchRequest, ResearchResponse
 from app.retrieval.passage_extractor import (
@@ -346,6 +348,15 @@ class ResearchOrchestrator:
                     social_hit_urls.append(hit.url)
                 else:
                     standard_hit_urls.append(hit.url)
+
+            scope_target_text = (
+                getattr(req, "confirmed_scope_question", None)
+                or req.explicit_location
+                or req.claim_text
+            )
+            target = identify_jurisdiction_target(scope_target_text)
+            if target:
+                standard_hit_urls.sort(key=lambda u: get_jurisdiction_rank_priority(u, target))
 
             candidate_pool.extend(standard_hit_urls)
             candidate_pool.extend(social_hit_urls)

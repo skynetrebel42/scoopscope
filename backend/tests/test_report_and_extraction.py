@@ -236,3 +236,92 @@ def test_post_api_report_empty_passages_rejected():
     resp = client.post("/api/report", json=req_payload)
     assert resp.status_code == 400
     assert "at least one quote" in resp.json()["detail"].lower()
+
+
+def test_post_api_report_citation_styles_deterministic():
+    """Works Cited formats deterministically across Standard, APA, and MLA without fabricating authors or dates."""
+    client = TestClient(app)
+
+    base_payload = {
+        "inquiry_title": "Norwalk Homeless Shelter Ordinance",
+        "report_vibe": "objective_brief",
+        "include_summary": False,
+        "include_evidence_bank": False,
+        "include_works_cited": True,
+        "include_open_questions": False,
+        "selected_passages": [
+            {
+                "passage_id": "pass_1",
+                "exact_passage": "The City Council voted unanimously to enact an emergency moratorium on new emergency shelters.",
+                "source_url": "https://norwalkca.gov/council-resolution",
+                "source_title": "Norwalk City Council Resolution 24-01",
+                "publication_date": "2024-08-06",
+                "jurisdiction_tag": "LA Local City Official",
+                "jurisdiction_code": "la_local_city",
+            },
+            {
+                "passage_id": "pass_2",
+                "exact_passage": "State housing officials issued a notice of violation to the municipality.",
+                "source_url": "https://hcd.ca.gov/news/norwalk-notice",
+                "source_title": "HCD Notice of Violation",
+                "publication_date": None,  # Missing publication date
+                "retrieval_date": "2024-10-18T12:00:00Z",
+                "jurisdiction_tag": "CA State Official",
+                "jurisdiction_code": "ca_state",
+            }
+        ],
+        "sources": [
+            {
+                "url": "https://norwalkca.gov/council-resolution",
+                "domain": "norwalkca.gov",
+                "title": "Norwalk City Council Resolution 24-01",
+                "publication_date": "2024-08-06",
+                "retrieval_date": "2024-10-18T10:00:00Z",
+                "status": "retrieved",
+                "jurisdiction_tag": "LA Local City Official",
+                "jurisdiction_code": "la_local_city",
+            },
+            {
+                "url": "https://hcd.ca.gov/news/norwalk-notice",
+                "domain": "hcd.ca.gov",
+                "title": "HCD Notice of Violation",
+                "publication_date": None,  # No date available
+                "retrieval_date": "2024-10-18T12:00:00Z",
+                "status": "retrieved",
+                "jurisdiction_tag": "CA State Official",
+                "jurisdiction_code": "ca_state",
+            }
+        ]
+    }
+
+    # 1. Standard citation style
+    resp_std = client.post("/api/report", json={**base_payload, "citation_style": "standard"})
+    assert resp_std.status_code == 200
+    md_std = resp_std.json()["markdown_content"]
+    assert "## Works Cited" in md_std
+    assert "norwalkca.gov" in md_std
+    assert "[LA Local City Official]" in md_std
+    assert "[CA State Official]" in md_std
+
+    # 2. APA (7th ed) citation style
+    resp_apa = client.post("/api/report", json={**base_payload, "citation_style": "apa"})
+    assert resp_apa.status_code == 200
+    md_apa = resp_apa.json()["markdown_content"]
+    assert "## Works Cited" in md_apa
+    # For missing date, APA must render (n.d.) explicitly
+    assert "(n.d.)" in md_apa
+    # For known date, year is formatted
+    assert "(2024" in md_apa
+    # Jurisdiction badge appended
+    assert "[LA Local City Official]" in md_apa
+
+    # 3. MLA (9th ed) citation style
+    resp_mla = client.post("/api/report", json={**base_payload, "citation_style": "mla"})
+    assert resp_mla.status_code == 200
+    md_mla = resp_mla.json()["markdown_content"]
+    assert "## Works Cited" in md_mla
+    # MLA quotation around title
+    assert '"Norwalk City Council Resolution 24-01."' in md_mla or '"Norwalk City Council Resolution 24-01"' in md_mla
+    assert "Accessed" in md_mla
+    assert "[LA Local City Official]" in md_mla
+
