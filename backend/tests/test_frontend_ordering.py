@@ -1314,3 +1314,331 @@ def test_single_collapsible_report_studio_and_clean_empty_state(tmp_path: Path):
     assert "FAIL:" not in report_text, f"Report studio test assertion failed:\n{report_text}"
 
 
+def test_milestone_4h_visual_fixes_in_browser(tmp_path: Path):
+    """
+    Milestone 4H (Decision 018):
+    1. On initial load, after clearWorkspace(), and on a newly created '+ New' tab when no claims
+       have been researched, window.getComputedStyle(document.getElementById("custom-report-section")).display === "none".
+    2. Researching Claim #2 in a multi-claim list auto-collapses Claim #1's .claim-results-container
+       (display === "none"), and clicking Claim #1's [Show Evidence ▾] button re-expands it.
+       Also confirms .technical-audit-drawer <details> is closed by default (!open).
+    3. Synthesizing a report when the response markdown already contains a Works Cited / Bibliography heading
+       results in exactly ONE Works Cited heading in the rendered report DOM, and quotes containing
+       literal '\\n' render without literal '\\n' characters.
+    """
+    browser = _find_browser()
+    if not browser:
+        pytest.skip("Neither Chrome nor Edge found on host.")
+
+    project_root = Path(__file__).resolve().parent.parent.parent
+    index_html_path = project_root / "frontend" / "index.html"
+    index_html_content = index_html_path.read_text(encoding="utf-8")
+
+    app_js_uri = (project_root / "frontend" / "app.js").resolve().as_uri()
+    style_css_uri = (project_root / "frontend" / "style.css").resolve().as_uri()
+
+    body_match = re.search(r"<body[^>]*>(.*?)</body>", index_html_content, re.DOTALL)
+    assert body_match is not None, "Could not extract body content from index.html"
+    body_inner = body_match.group(1)
+    body_inner = re.sub(r'<script\s+src=["\']app\.js["\'][^>]*></script>', '', body_inner)
+
+    runner_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Milestone 4H Visual Fixes Test</title>
+    <link rel="stylesheet" href="{style_css_uri}">
+    <style>
+        #test-report {{
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #111520;
+            border: 1px solid #3ecfb4;
+            border-radius: 8px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }}
+        .test-pass {{ color: #3ecfb4; }}
+        .test-fail {{ color: #eb5757; }}
+    </style>
+</head>
+<body>
+    <div id="test-report">Initializing Milestone 4H Visual Fixes test...</div>
+
+    {body_inner}
+
+    <script src="{app_js_uri}"></script>
+
+    <script>
+    (async function() {{
+        const report = document.getElementById("test-report");
+        const logs = [];
+        let passed = 0;
+
+        function log(msg) {{
+            logs.push(msg);
+            report.textContent = logs.join("\\n");
+        }}
+
+        function assert(condition, message) {{
+            if (!condition) {{
+                throw new Error("Assertion failed: " + message);
+            }}
+            passed++;
+            log("  [PASS " + passed + "] " + message);
+        }}
+
+        function delay(ms) {{
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }}
+
+        try {{
+            localStorage.clear();
+            const scope = window.__ScoopScope;
+            assert(scope !== undefined, "__ScoopScope is exposed");
+
+            // ==========================================
+            // FIX 1: Empty-Tab Report Studio Hiding Check
+            // ==========================================
+            log("\\n--- FIX 1: Empty-Tab Report Studio Hiding ---");
+            const customReportSec = document.getElementById("custom-report-section");
+            assert(customReportSec !== null, "#custom-report-section exists in DOM");
+
+            // 1. Initial Load computed style must be display: none
+            const initialDisplay = window.getComputedStyle(customReportSec).display;
+            assert(initialDisplay === "none", "On initial load, #custom-report-section computed display is none (was " + initialDisplay + ")");
+
+            // 2. Newly created + New tab computed style must be display: none
+            const btnNewSess = document.getElementById("btn-new-session");
+            assert(btnNewSess !== null, "#btn-new-session exists in DOM");
+            btnNewSess.click();
+            await delay(30);
+
+            const newTabDisplay = window.getComputedStyle(customReportSec).display;
+            assert(newTabDisplay === "none", "On fresh tab (+ New), #custom-report-section computed display is none (was " + newTabDisplay + ")");
+
+            // 3. After clearWorkspace() computed style must be display: none
+            const clearBtn = document.getElementById("btn-clear-workspace");
+            assert(clearBtn !== null, "#btn-clear-workspace exists in DOM");
+            clearBtn.click();
+            await delay(30);
+
+            const postClearDisplay = window.getComputedStyle(customReportSec).display;
+            assert(postClearDisplay === "none", "After clearWorkspace(), #custom-report-section computed display is none (was " + postClearDisplay + ")");
+
+            // ==========================================
+            // FIX 2 & 3: Multi-Claim Accordion & Technical Audit
+            // ==========================================
+            log("\\n--- FIX 3: Multi-Claim Results Accordion & Auto-Collapse ---");
+            const mockExtract = {{
+                submission_id: "sub_multi_claims",
+                submitted_text: "City adopted canopy targets and banned gas stations.",
+                source_url: "https://santamonica.gov/climate",
+                claims: [
+                    {{
+                        id: "claim_acc_1",
+                        claim_type: "factual",
+                        normalized_assertion: "City adopted 30 percent tree canopy target.",
+                        original_wording: "City adopted canopy targets."
+                    }},
+                    {{
+                        id: "claim_acc_2",
+                        claim_type: "factual",
+                        normalized_assertion: "City banned new gas stations in 2024.",
+                        original_wording: "and banned gas stations."
+                    }}
+                ]
+            }};
+
+            scope.renderResults(mockExtract, scope.currentSeq);
+
+            const mockResearchData1 = {{
+                claim_id: "claim_acc_1",
+                status_message: "Completed in 0.3s",
+                completed_in_seconds: 0.3,
+                candidate_passages: [
+                    {{
+                        passage_id: "psg_1",
+                        source_id: "src_1",
+                        source_url: "https://santamonica.gov/trees",
+                        source_title: "Santa Monica Trees",
+                        exact_passage: "Adopted a 30 percent tree canopy target by 2028.",
+                        publication_date: "2024-05-01",
+                        jurisdiction_tag: "LA Local City Official"
+                    }}
+                ],
+                retrieved_sources: [
+                    {{
+                        source_id: "src_1",
+                        domain: "santamonica.gov",
+                        url: "https://santamonica.gov/trees",
+                        title: "Santa Monica Trees",
+                        publication_date: "2024-05-01",
+                        status: "retrieved"
+                    }}
+                ]
+            }};
+
+            const mockResearchData2 = {{
+                claim_id: "claim_acc_2",
+                status_message: "Completed in 0.4s",
+                completed_in_seconds: 0.4,
+                candidate_passages: [
+                    {{
+                        passage_id: "psg_2",
+                        source_id: "src_2",
+                        source_url: "https://santamonica.gov/energy",
+                        source_title: "Santa Monica Energy",
+                        exact_passage: "City Council enacted a moratorium on new gas stations.",
+                        publication_date: "2024-06-01",
+                        jurisdiction_tag: "LA Local City Official"
+                    }}
+                ],
+                retrieved_sources: [
+                    {{
+                        source_id: "src_2",
+                        domain: "santamonica.gov",
+                        url: "https://santamonica.gov/energy",
+                        title: "Santa Monica Energy",
+                        publication_date: "2024-06-01",
+                        status: "retrieved"
+                    }}
+                ]
+            }};
+
+            // Mock fetch for /api/research so clicking btn-research works seamlessly
+            const origFetch = window.fetch;
+            window.fetch = async function(url, options) {{
+                if (url.includes("/api/research")) {{
+                    const parsedReq = JSON.parse(options.body);
+                    const isClaim2 = parsedReq.claim_id === "claim_acc_2";
+                    return {{
+                        ok: true,
+                        status: 200,
+                        json: async () => isClaim2 ? mockResearchData2 : mockResearchData1
+                    }};
+                }}
+                if (url.includes("/api/report")) {{
+                    return {{
+                        ok: true,
+                        status: 200,
+                        json: async () => ({{
+                            report_title: "Investigation Report",
+                            markdown_content: "# Report\\n\\n## Executive Summary\\nDetails here with quote: \\"Santa Monica adopted \\\\n \\\\n \\\\n \\\\n sustainability targets.\\"\\n\\n## Works Cited / Bibliography\\n1. Existing Title. santamonica.gov. URL."
+                        }})
+                    }};
+                }}
+                return origFetch(url, options);
+            }};
+
+            const card1 = document.getElementById("claim-card-claim_acc_1");
+            const card2 = document.getElementById("claim-card-claim_acc_2");
+            assert(card1 !== null && card2 !== null, "Both claim cards rendered in DOM");
+
+            const container1 = card1.querySelector(".claim-results-container, .claim-research-container");
+            const container2 = card2.querySelector(".claim-results-container, .claim-research-container");
+            assert(container1 !== null && container2 !== null, "Both results containers found");
+
+            // Research Claim #1
+            const btnRes1 = card1.querySelector(".btn-research");
+            btnRes1.click();
+            await delay(80);
+
+            // Verify Claim #1 results are expanded
+            assert(window.getComputedStyle(container1).display !== "none", "Claim #1 results container is expanded after research");
+            const audit1 = card1.querySelector(".technical-audit-drawer");
+            assert(audit1 !== null, "Technical audit drawer rendered in Claim #1");
+            assert(!audit1.open, "Technical audit drawer is closed by default (!open)");
+
+            // Now research Claim #2: clicking Find sources on Claim #2 must auto-collapse Claim #1
+            const btnRes2 = card2.querySelector(".btn-research");
+            btnRes2.click();
+            await delay(80);
+
+            // Verify Claim #1 results container is now collapsed (display === none)
+            const card1DisplayAfter2 = window.getComputedStyle(container1).display;
+            assert(card1DisplayAfter2 === "none", "Claim #1 results container auto-collapsed after researching Claim #2 (was " + card1DisplayAfter2 + ")");
+
+            // Verify Claim #2 results container is expanded
+            assert(window.getComputedStyle(container2).display !== "none", "Claim #2 results container is expanded");
+
+            // Verify Claim #1 has a toggle button [Show Evidence ▾]
+            const toggleBtn1 = card1.querySelector(".btn-toggle-evidence") || card1.querySelector("button.btn-toggle-evidence");
+            assert(toggleBtn1 !== null, "Claim #1 has a toggle button (.btn-toggle-evidence)");
+            assert(toggleBtn1.textContent.includes("Show Evidence"), "Claim #1 toggle button text contains 'Show Evidence' (was '" + toggleBtn1.textContent + "')");
+
+            // Clicking Claim #1's [Show Evidence ▾] button re-expands it
+            toggleBtn1.click();
+            await delay(30);
+            assert(window.getComputedStyle(container1).display !== "none", "Claim #1 results container re-expands upon clicking toggle button");
+            assert(toggleBtn1.textContent.includes("Collapse Evidence"), "Claim #1 toggle button updates to 'Collapse Evidence ▴'");
+
+            // ==========================================
+            // FIX 4: Single Works Cited & Clean Quote Strings
+            // ==========================================
+            log("\\n--- FIX 4: Single Works Cited & Clean Quote Strings ---");
+            const btnGenReport = document.getElementById("btn-generate-custom-report");
+            assert(btnGenReport !== null, "#btn-generate-custom-report exists in DOM");
+
+            // Synthesize custom report
+            btnGenReport.click();
+            await delay(80);
+
+            const reportCard = document.getElementById("custom-report-output-card");
+            assert(reportCard !== null && !reportCard.classList.contains("hidden"), "Custom report output card is visible");
+
+            const reportBody = reportCard.querySelector(".report-content-body");
+            assert(reportBody !== null, "Report content body exists");
+
+            // Check that exactly ONE Works Cited section exists in the rendered report
+            const worksCitedMatches = Array.from(reportBody.querySelectorAll("h1, h2, h3, h4"))
+                .filter(h => /Works\\s+Cited|Bibliography/i.test(h.textContent));
+            assert(worksCitedMatches.length === 1, "Exactly ONE Works Cited heading exists in report DOM (found " + worksCitedMatches.length + ")");
+
+            // Check that quotes containing \\n \\n render without literal \\n characters
+            assert(!reportBody.textContent.includes("\\\\n"), "Rendered report text does NOT contain literal '\\\\n' characters");
+
+            log("\\nALL MILESTONE 4H TESTS PASSED (" + passed + " assertions)");
+        }} catch (err) {{
+            report.className = "test-fail";
+            report.textContent = "FAIL: " + err.message + "\\n" + (err.stack || "");
+        }}
+    }})();
+    </script>
+</body>
+</html>"""
+
+    runner_file = tmp_path / "milestone_4h_runner.html"
+    runner_file.write_text(runner_html, encoding="utf-8")
+
+    cmd = [
+        browser,
+        "--headless=new",
+        "--disable-gpu",
+        "--allow-file-access-from-files",
+        "--virtual-time-budget=6000",
+        "--dump-dom",
+        str(runner_file),
+    ]
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+    )
+
+    stdout = result.stdout
+    match = re.search(r'<div id="test-report"[^>]*>(.*?)</div>', stdout, re.DOTALL)
+    assert match is not None, f"Could not find #test-report in DOM output: {stdout[:500]}"
+    report_text = match.group(1)
+    print("\n--- MILESTONE 4H TEST REPORT ---")
+    print(report_text.encode("ascii", errors="replace").decode("ascii"))
+    print("--- END MILESTONE 4H TEST REPORT ---\n")
+
+    assert "ALL MILESTONE 4H TESTS PASSED" in report_text, f"Milestone 4H test failed:\n{report_text}"
+    assert "FAIL:" not in report_text, f"Milestone 4H test assertion failed:\n{report_text}"
+
+
+

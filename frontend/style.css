@@ -58,6 +58,12 @@
     padding: 0;
 }
 
+/* --- Global Visibility Utilities (Milestone 4H) --- */
+.hidden,
+[hidden] {
+    display: none !important;
+}
+
 /* --- Base --- */
 html {
     font-size: 16px;
@@ -1834,10 +1840,16 @@ body::before {
 .session-tabs-list {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    overflow-x: visible;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
     gap: 0.4rem;
-    overflow-x: auto;
     flex: 1;
-    scrollbar-width: thin;
+}
+
+.session-tabs-list::-webkit-scrollbar {
+    display: none;
 }
 
 .session-tab-btn {
@@ -2353,5 +2365,32 @@ body::before {
     margin-bottom: 0.5rem;
     padding-left: 0.25rem;
     line-height: 1.6;
+}
+
+/* --- Milestone 4H: Claim Results Accordion Toggle Button --- */
+.btn-toggle-evidence {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+    transition: all var(--transition);
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.btn-toggle-evidence:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-toggle-evidence.hidden {
+    display: none !important;
 }
 

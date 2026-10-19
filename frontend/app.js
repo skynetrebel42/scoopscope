@@ -678,12 +678,38 @@
             });
 
             actionsDiv.appendChild(researchBtn);
-            card.appendChild(actionsDiv);
+
+            // Milestone 4H: Claim Results Accordion Toggle Button
+            const toggleEvidenceBtn = document.createElement("button");
+            toggleEvidenceBtn.type = "button";
+            toggleEvidenceBtn.className = "btn-toggle-evidence hidden";
+            toggleEvidenceBtn.id = `btn-toggle-evidence-${claim.id}`;
+            toggleEvidenceBtn.textContent = "Collapse Evidence ▴";
 
             // Container for research results
             const researchContainer = document.createElement("div");
-            researchContainer.className = "claim-research-container research-results-container hidden";
+            researchContainer.className = "claim-research-container claim-results-container research-results-container hidden";
             researchContainer.id = `research-container-${claim.id}`;
+
+            toggleEvidenceBtn.addEventListener("click", () => {
+                const isCurrentlyCollapsed = researchContainer.classList.contains("hidden") || researchContainer.style.display === "none";
+                if (isCurrentlyCollapsed) {
+                    researchContainer.classList.remove("hidden");
+                    researchContainer.style.display = "";
+                    toggleEvidenceBtn.textContent = "Collapse Evidence ▴";
+                } else {
+                    researchContainer.classList.add("hidden");
+                    researchContainer.style.display = "none";
+                    const runs = (claimResearchTabs && claimResearchTabs[claim.id]) || [];
+                    const activeTabId = activeClaimTabId && activeClaimTabId[claim.id];
+                    const activeRun = runs.find(r => r.id === activeTabId) || runs[runs.length - 1];
+                    const count = activeRun && activeRun.data && activeRun.data.candidate_passages ? activeRun.data.candidate_passages.length : 0;
+                    toggleEvidenceBtn.textContent = count > 0 ? `Show Evidence (${count} quotes) ▾` : "Show Evidence ▾";
+                }
+            });
+
+            actionsDiv.appendChild(toggleEvidenceBtn);
+            card.appendChild(actionsDiv);
             card.appendChild(researchContainer);
 
             claimsList.appendChild(card);
@@ -708,10 +734,41 @@
         const researchSeq = ++activeResearchSeq;
         activeResearchClaimId = claim.id;
 
+        // Milestone 4H: Auto-collapse any other claim cards' results containers in this session
+        (currentClaims || []).forEach(otherClaim => {
+            if (otherClaim.id !== claim.id) {
+                const otherCard = document.getElementById(`claim-card-${otherClaim.id}`);
+                if (otherCard) {
+                    const otherContainer = otherCard.querySelector(".claim-results-container, .claim-research-container");
+                    const otherToggleBtn = otherCard.querySelector(".btn-toggle-evidence");
+                    if (otherContainer) {
+                        otherContainer.classList.add("hidden");
+                        otherContainer.style.display = "none";
+                    }
+                    if (otherToggleBtn) {
+                        const runs = (claimResearchTabs && claimResearchTabs[otherClaim.id]) || [];
+                        const activeTabId = activeClaimTabId && activeClaimTabId[otherClaim.id];
+                        const activeRun = runs.find(r => r.id === activeTabId) || runs[runs.length - 1];
+                        const count = activeRun && activeRun.data && activeRun.data.candidate_passages ? activeRun.data.candidate_passages.length : 0;
+                        otherToggleBtn.textContent = count > 0 ? `Show Evidence (${count} quotes) ▾` : "Show Evidence ▾";
+                        if (runs.length > 0) {
+                            otherToggleBtn.classList.remove("hidden");
+                        }
+                    }
+                }
+            }
+        });
+
         const container = card.querySelector(`#research-container-${claim.id}`) || card.querySelector(".claim-research-container");
         if (container) {
             container.innerHTML = "";
             container.classList.remove("hidden");
+            container.style.display = "";
+        }
+        const currentToggleBtn = card.querySelector(".btn-toggle-evidence");
+        if (currentToggleBtn) {
+            currentToggleBtn.textContent = "Collapse Evidence ▴";
+            currentToggleBtn.classList.remove("hidden");
         }
 
         // Button loading state
@@ -908,6 +965,21 @@
     }
 
     // --- Quote and Markdown Helpers ---
+    function cleanQuoteText(quote) {
+        if (!quote) return "";
+        return quote.replace(/\\n|\r?\n+/g, " ").replace(/\s{2,}/g, " ").trim();
+    }
+
+    function cleanReportMarkdown(md) {
+        if (!md) return "";
+        return md.replace(/\\n/g, " ").replace(/[ \t]{2,}/g, " ");
+    }
+
+    function stripTrailingWorksCited(markdown) {
+        if (!markdown) return "";
+        return markdown.replace(/(?:^|\n)#{1,4}\s+(?:Works\s+Cited|Bibliography)[\s\S]*$/i, "").trim();
+    }
+
     function getQuoteKey(claimId, p) {
         return `${claimId}_${p.source_url}_${p.start_offset}_${p.end_offset}`;
     }
@@ -1103,7 +1175,7 @@
 
         if (outputCard && outputBody) {
             const inquiryTitle = currentConfirmedScopeQuestion || (checked[0] && checked[0].passage && (checked[0].passage.relevance_explanation || checked[0].passage.exact_passage)) || "Investigation Findings";
-            const passagesList = checked.map(c => `- "${c.passage.exact_passage}" ([Source](${c.passage.source_url}))`).join("\n");
+            const passagesList = checked.map(c => `- "${cleanQuoteText(c.passage.exact_passage)}" ([Source](${c.passage.source_url}))`).join("\n");
             const worksCitedText = primaryReportSources.map((s, idx) => `${idx + 1}. ${formatCitation(s, activeCitationStyle || "standard")}`).join("\n");
 
             primaryGeneratedMarkdown = `# Investigation Report: ${inquiryTitle}\n\n## Topic & Inquiry Synthesis\nRetrieved verbatim evidence addressing terms in the inquiry. Review the extracted quotes below.\n\n## Structured Evidence Bank\n${passagesList}\n\n## Works Cited\n${worksCitedText}`;
@@ -1111,6 +1183,35 @@
             outputBody.innerHTML = renderMarkdown(primaryGeneratedMarkdown);
             outputCard.classList.remove("hidden");
         }
+    }
+
+    function hasResearchedClaimOrSelectedQuotes() {
+        const totalSelectedQuotes = Object.values(selectedQuotes).filter(q => q && q.checked).length;
+        if (totalSelectedQuotes > 0) return true;
+
+        const activeSess = sessionInquiries.find(s => s.id === activeSessionId);
+        if (activeSess) {
+            if (activeSess.claimResearchTabs) {
+                for (const claimId in activeSess.claimResearchTabs) {
+                    if (Array.isArray(activeSess.claimResearchTabs[claimId]) && activeSess.claimResearchTabs[claimId].length > 0) {
+                        return true;
+                    }
+                }
+            }
+            if (activeSess.claims) {
+                for (const c of activeSess.claims) {
+                    if (claimResearchTabs[c.id] && claimResearchTabs[c.id].length > 0) {
+                        return true;
+                    }
+                }
+            }
+        }
+        for (const claimId in claimResearchTabs) {
+            if (Array.isArray(claimResearchTabs[claimId]) && claimResearchTabs[claimId].length > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function updateAllEvidenceCounters() {
@@ -1124,13 +1225,36 @@
 
         const customReportSec = document.getElementById("custom-report-section");
         const reportStudioSec = document.getElementById("report-studio-section");
-        if (count > 0) {
-            if (customReportSec) customReportSec.classList.remove("hidden");
-            if (reportStudioSec) reportStudioSec.classList.remove("hidden");
+        const canShow = hasResearchedClaimOrSelectedQuotes();
+
+        if (canShow && count > 0) {
+            if (customReportSec) {
+                customReportSec.classList.remove("hidden");
+                customReportSec.removeAttribute("hidden");
+            }
+            if (reportStudioSec) {
+                reportStudioSec.classList.remove("hidden");
+                reportStudioSec.removeAttribute("hidden");
+            }
             renderCustomReport();
+        } else if (canShow) {
+            if (customReportSec) {
+                customReportSec.classList.remove("hidden");
+                customReportSec.removeAttribute("hidden");
+            }
+            if (reportStudioSec) {
+                reportStudioSec.classList.remove("hidden");
+                reportStudioSec.removeAttribute("hidden");
+            }
         } else {
-            if (customReportSec) customReportSec.classList.add("hidden");
-            if (reportStudioSec) reportStudioSec.classList.add("hidden");
+            if (customReportSec) {
+                customReportSec.classList.add("hidden");
+                customReportSec.setAttribute("hidden", "");
+            }
+            if (reportStudioSec) {
+                reportStudioSec.classList.add("hidden");
+                reportStudioSec.setAttribute("hidden", "");
+            }
         }
     }
 
@@ -1190,6 +1314,7 @@
 
     function updateReportWorksCited(markdown, sources, style) {
         if (!markdown) return "";
+        const cleanMd = stripTrailingWorksCited(markdown);
         const worksCitedLines = ["## Works Cited & Bibliography\n"];
         if (!sources || sources.length === 0) {
             worksCitedLines.push("*No sources recorded.*");
@@ -1206,14 +1331,13 @@
                 worksCitedLines.push(`${idx + 1}. ${formatCitation(s, style)}`);
             });
         }
-        const worksCitedText = worksCitedLines.join("\n");
-        if (/(?:##\s+Works\s+Cited|##\s+Bibliography)/i.test(markdown)) {
-            return markdown.replace(/(?:##\s+Works\s+Cited|##\s+Bibliography)[\s\S]*$/i, worksCitedText);
-        }
-        return markdown + "\n\n" + worksCitedText;
+        return cleanMd + "\n\n" + worksCitedLines.join("\n");
     }
 
     // Expose helpers globally for test runner inspection
+    window.cleanQuoteText = cleanQuoteText;
+    window.cleanReportMarkdown = cleanReportMarkdown;
+    window.stripTrailingWorksCited = stripTrailingWorksCited;
     window.stripMarkdownToPlainText = stripMarkdownToPlainText;
     window.formatCitation = formatCitation;
     window.updateReportWorksCited = updateReportWorksCited;
@@ -1514,8 +1638,10 @@
                     return;
                 }
                 activeReportSources = reqBody.sources;
-                lastGeneratedMarkdown = repData.markdown_content;
-                outputBody.innerHTML = renderMarkdown(repData.markdown_content);
+                const cleanedMd = cleanReportMarkdown(repData.markdown_content || "");
+                const strippedMd = stripTrailingWorksCited(cleanedMd);
+                lastGeneratedMarkdown = updateReportWorksCited(strippedMd, activeReportSources, citationSelect.value || "standard");
+                outputBody.innerHTML = renderMarkdown(lastGeneratedMarkdown);
                 outputCard.classList.remove("hidden");
                 outputCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
             } catch (err) {
@@ -1720,12 +1846,13 @@
                 quoteBullet.appendChild(bulletHeader);
 
                 // Deep fragment URL
-                const deepUrl = buildTextFragmentUrl(p.source_url, p.exact_passage);
+                const cleanedQuote = cleanQuoteText(p.exact_passage);
+                const deepUrl = buildTextFragmentUrl(p.source_url, cleanedQuote);
 
                 // Verbatim quote element (clickable deep link)
                 const quoteText = document.createElement("a");
                 quoteText.className = "focused-quote-text";
-                quoteText.textContent = `"${p.exact_passage}"`;
+                quoteText.textContent = `"${cleanedQuote}"`;
                 if (isSafeHttpUrl(deepUrl)) {
                     quoteText.href = deepUrl;
                     quoteText.target = "_blank";
@@ -1866,9 +1993,11 @@
             panel.appendChild(exploreCard);
         }
 
-        // 4. Collapsed Technical Audit Drawer
+        // 4. Collapsed Technical Audit Drawer (Milestone 4H: closed by default)
         const auditDrawer = document.createElement("details");
         auditDrawer.className = "technical-audit-drawer";
+        auditDrawer.open = false;
+        auditDrawer.removeAttribute("open");
 
         const retrievedCount = (data.retrieved_sources || []).filter(s => s.status === "retrieved").length;
         const totalSources = (data.retrieved_sources || []).length;
@@ -2117,6 +2246,17 @@
         container.appendChild(contentContainer);
 
         renderResearchResults(contentContainer, activeRun.data, claim, button, card);
+
+        const actualCard = card || document.getElementById(`claim-card-${claim.id}`);
+        const toggleBtn = actualCard ? actualCard.querySelector(".btn-toggle-evidence") : null;
+        if (toggleBtn) {
+            toggleBtn.classList.remove("hidden");
+            const isCollapsed = container.classList.contains("hidden") || container.style.display === "none";
+            if (!isCollapsed) {
+                toggleBtn.textContent = "Collapse Evidence ▴";
+            }
+        }
+
         updateAllEvidenceCounters();
     }
 
@@ -2505,15 +2645,35 @@
             if (clarificationSection) clarificationSection.classList.add("hidden");
             renderResults(target.data, currentSubmissionSeq);
             let hasResearch = false;
+            let activeExpandedClaimId = null;
             (target.claims || []).forEach(claim => {
                 if (claimResearchTabs[claim.id] && claimResearchTabs[claim.id].length > 0) {
                     hasResearch = true;
+                    if (!activeExpandedClaimId) activeExpandedClaimId = claim.id;
                     const card = document.getElementById(`claim-card-${claim.id}`);
                     if (card) {
                         const container = card.querySelector(`#research-container-${claim.id}`) || card.querySelector(`.claim-research-container`);
                         const researchBtn = card.querySelector(`#btn-research-${claim.id}`) || card.querySelector(`.btn-research`);
+                        const toggleBtn = card.querySelector(`.btn-toggle-evidence`);
                         if (container && researchBtn) {
-                            container.classList.remove("hidden");
+                            if (activeResearchClaimId === claim.id || (!activeResearchClaimId && activeExpandedClaimId === claim.id)) {
+                                container.classList.remove("hidden");
+                                container.style.display = "";
+                                if (toggleBtn) {
+                                    toggleBtn.textContent = "Collapse Evidence ▴";
+                                    toggleBtn.classList.remove("hidden");
+                                }
+                            } else {
+                                container.classList.add("hidden");
+                                container.style.display = "none";
+                                if (toggleBtn) {
+                                    const runs = claimResearchTabs[claim.id] || [];
+                                    const activeRun = runs[runs.length - 1];
+                                    const count = activeRun && activeRun.data && activeRun.data.candidate_passages ? activeRun.data.candidate_passages.length : 0;
+                                    toggleBtn.textContent = count > 0 ? `Show Evidence (${count} quotes) ▾` : "Show Evidence ▾";
+                                    toggleBtn.classList.remove("hidden");
+                                }
+                            }
                             renderClaimResearchTabsWorkspace(container, claim, researchBtn, card);
                         }
                     }
@@ -2534,6 +2694,16 @@
             if (submittedUrlRow) submittedUrlRow.classList.add("hidden");
             if (stickyInquiryBar) stickyInquiryBar.classList.add("hidden");
             if (formEl) formEl.classList.remove("compact-collapsed");
+            const customReportSec = document.getElementById("custom-report-section");
+            if (customReportSec) {
+                customReportSec.classList.add("hidden");
+                customReportSec.setAttribute("hidden", "");
+            }
+            const reportStudio = document.getElementById("report-studio-section");
+            if (reportStudio) {
+                reportStudio.classList.add("hidden");
+                reportStudio.setAttribute("hidden", "");
+            }
         }
 
         document.querySelectorAll("#citation-style-select, .citation-style-select").forEach(sel => {
@@ -2541,6 +2711,18 @@
         });
 
         updateAllEvidenceCounters();
+        if (!hasResearchedClaimOrSelectedQuotes()) {
+            const customReportSec = document.getElementById("custom-report-section");
+            if (customReportSec) {
+                customReportSec.classList.add("hidden");
+                customReportSec.setAttribute("hidden", "");
+            }
+            const reportStudio = document.getElementById("report-studio-section");
+            if (reportStudio) {
+                reportStudio.classList.add("hidden");
+                reportStudio.setAttribute("hidden", "");
+            }
+        }
     }
 
     function startNewSession() {
@@ -2903,8 +3085,8 @@
                     include_open_questions: true,
                     selected_passages: checkedItems.map(item => ({
                         passage_id: item.passage.passage_id,
-                        exact_passage: item.passage.exact_passage,
-                        context_surrounding: item.passage.context_surrounding,
+                        exact_passage: cleanQuoteText(item.passage.exact_passage),
+                        context_surrounding: cleanQuoteText(item.passage.context_surrounding),
                         source_url: item.passage.source_url,
                         relevance_explanation: item.passage.relevance_explanation || item.passage.relevance_note,
                         publication_date: item.passage.publication_date,
@@ -2918,7 +3100,9 @@
                 });
                 if (res.ok) {
                     const repData = await res.json();
-                    primaryGeneratedMarkdown = repData.markdown_content;
+                    const cleanedMd = cleanReportMarkdown(repData.markdown_content || "");
+                    const strippedMd = stripTrailingWorksCited(cleanedMd);
+                    primaryGeneratedMarkdown = updateReportWorksCited(strippedMd, primaryReportSources, activeCitationStyle || "standard");
                 }
             } catch (_) {
                 // Keep local draft synthesis
