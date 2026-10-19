@@ -188,6 +188,80 @@
                 </div>
             </section>
 
+            <!-- Custom Report Studio (Milestone 3B / 4D / 4E / 4F) -->
+            <section id="custom-report-section" class="custom-report-section hidden" aria-live="polite">
+                <div class="report-builder-panel">
+                    <div class="report-builder-header">
+                        <div class="report-builder-title">
+                            <span aria-hidden="true">📄</span> Generate Page Report &amp; Evidence Bank
+                        </div>
+                        <div class="report-counter-wrap">
+                            <span class="evidence-counter-badge">0 quotes from 0 sources selected across tabs</span>
+                            <button type="button" class="btn-counter-toggle btn-select-all-quotes">Select All</button>
+                            <button type="button" class="btn-counter-toggle btn-clear-quotes">Clear</button>
+                        </div>
+                    </div>
+
+                    <div class="report-builder-controls">
+                        <div class="report-control-group">
+                            <label class="report-control-label" for="report-vibe-select">Report Vibe / Output Style</label>
+                            <select id="report-vibe-select" class="report-vibe-select">
+                                <option value="objective_brief">Objective Brief (Neutral, concise summary)</option>
+                                <option value="cornell_study">Cornell Study (Academic study notes &amp; cues)</option>
+                                <option value="fact_check">Fact Check (Verdict breakdown &amp; provenance)</option>
+                                <option value="deep_dive">Deep Dive (Comprehensive synthesis)</option>
+                            </select>
+                        </div>
+
+                        <div class="report-control-group">
+                            <label class="report-control-label" for="citation-style-select">Citation Style (Works Cited)</label>
+                            <select id="citation-style-select" class="report-citation-select citation-style-select">
+                                <option value="standard">Standard Numbered ([1] domain.com [Jurisdiction])</option>
+                                <option value="apa">APA 7th ed. (Domain/Author. (Year). Title.)</option>
+                                <option value="mla">MLA 9th ed. ("Title." Domain, Date/Accessed.)</option>
+                            </select>
+                        </div>
+
+                        <div class="report-control-group">
+                            <label class="report-control-label">Included Report Sections</label>
+                            <div class="report-sections-grid">
+                                <label class="report-checkbox-label">
+                                    <input type="checkbox" id="include_summary" checked>Topic &amp; Inquiry Synthesis
+                                </label>
+                                <label class="report-checkbox-label">
+                                    <input type="checkbox" id="include_evidence_bank" checked>Structured Evidence Bank
+                                </label>
+                                <label class="report-checkbox-label">
+                                    <input type="checkbox" id="include_works_cited" checked>Works Cited / Bibliography
+                                </label>
+                                <label class="report-checkbox-label">
+                                    <input type="checkbox" id="include_open_questions" checked>Unresolved Next Questions
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="report-control-group">
+                        <label class="report-control-label" for="report-focus-input">Custom Focus / Angle (Optional)</label>
+                        <input id="report-focus-input" type="text" class="report-focus-input" placeholder="Cater report to a specific question, angle, or audience…">
+                    </div>
+
+                    <button id="btn-generate-custom-report" type="button" class="btn-generate-report">
+                        <span>Synthesize Custom Report &amp; Evidence Bank</span> <span aria-hidden="true">&rarr;</span>
+                    </button>
+
+                    <div id="custom-report-output-card" class="report-output-card hidden">
+                        <div class="report-output-actions">
+                            <button type="button" class="btn-report-action btn-copy-report">Copy Markdown</button>
+                            <button type="button" class="btn-report-action btn-copy-plaintext-report">Copy Plain Text</button>
+                            <button type="button" class="btn-report-action btn-download-report">Download .md Report</button>
+                            <button type="button" class="btn-report-action btn-print-report">Print / Save PDF</button>
+                        </div>
+                        <div class="report-content-body"></div>
+                    </div>
+                </div>
+            </section>
+
             <section id="report-studio-section" class="hidden"></section>
         </main>
 

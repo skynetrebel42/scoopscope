@@ -509,3 +509,326 @@ async def test_localstorage_persistence_in_browser(tmp_path: Path):
 
     assert "ALL PERSISTENCE TESTS PASSED" in report_text, f"Persistence tests failed:\n{report_text}"
     assert "FAIL:" not in report_text, f"Persistence test assertion failed:\n{report_text}"
+
+
+def test_fastapi_live_static_and_index_serving():
+    """Verify FastAPI GET / serves index.html with all Phase 4 DOM elements and static assets."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+    resp = client.get("/")
+    assert resp.status_code == 200, f"GET / failed with {resp.status_code}"
+    html = resp.text
+    assert 'id="session-tabs-bar"' in html, "Missing #session-tabs-bar in served index.html"
+    assert 'id="btn-clear-workspace"' in html, "Missing #btn-clear-workspace in served index.html"
+    assert 'id="input-text"' in html, "Missing #input-text in served index.html"
+    assert 'id="citation-style-select"' in html, "Missing #citation-style-select in served index.html"
+    assert 'id="custom-report-section"' in html, "Missing #custom-report-section in served index.html"
+
+    # Verify static assets serve cleanly
+    resp_js = client.get("/app.js")
+    assert resp_js.status_code == 200, f"GET /app.js failed with {resp_js.status_code}"
+    assert "scoopscope_workspace_v1" in resp_js.text
+
+    resp_css = client.get("/style.css")
+    assert resp_css.status_code == 200, f"GET /style.css failed with {resp_css.status_code}"
+    assert "session-tabs-bar" in resp_css.text
+
+
+@pytest.mark.anyio
+async def test_phase4_full_journey_smoke_in_browser(tmp_path: Path):
+    """Exercise complete integrated Phase 4 user journey on real DOM elements:
+    1. Type query in visible <textarea id="input-text"> -> saves draft to localStorage in inputText.
+    2. Render researched claim with official LA Local City source (santamonica.gov) -> Cornell Cue card renders official badge & publication date.
+    3. Check quote checkbox in Cornell Notes -> quote selected into Report Studio (#custom-report-section), section is visible (not .hidden).
+    4. Switch #citation-style-select to 'mla' and 'apa' -> visible Works Cited list and report reflect format, #custom-report-section remains visible.
+    5. Open new session tab (#btn-new-session), type draft in <textarea id="input-text">, reload (loadWorkspaceFromStorage()), switch back to Session 1 -> 100% restored.
+    6. Click #btn-clear-workspace -> <textarea id="input-text"> is empty, #custom-report-section hidden, #results-section hidden, single clean 'Session 1' tab.
+    """
+    browser = _find_browser()
+    if not browser:
+        pytest.skip("Neither Chrome nor Edge found on host.")
+
+    project_root = Path(__file__).resolve().parent.parent.parent
+    index_html_path = project_root / "frontend" / "index.html"
+    assert index_html_path.is_file(), f"Missing index.html at {index_html_path}"
+    index_html_content = index_html_path.read_text(encoding="utf-8")
+
+    app_js_uri = (project_root / "frontend" / "app.js").resolve().as_uri()
+    style_css_uri = (project_root / "frontend" / "style.css").resolve().as_uri()
+
+    # Extract body content from index.html (excluding app.js script tag)
+    body_match = re.search(r"<body[^>]*>(.*?)</body>", index_html_content, re.DOTALL)
+    assert body_match is not None, "Could not extract body content from index.html"
+    body_inner = body_match.group(1)
+    body_inner = re.sub(r'<script\s+src=["\']app\.js["\'][^>]*></script>', '', body_inner)
+
+    runner_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ScoopScope Phase 4 Smoke Runner</title>
+    <link rel="stylesheet" href="{style_css_uri}">
+    <style>
+        #test-report {{
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #111520;
+            border: 1px solid #3ecfb4;
+            border-radius: 8px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }}
+        .test-pass {{ color: #3ecfb4; }}
+        .test-fail {{ color: #eb5757; }}
+    </style>
+</head>
+<body>
+    <div id="test-report">Initializing Phase 4 smoke test...</div>
+
+    {body_inner}
+
+    <script src="{app_js_uri}"></script>
+
+    <script>
+    (async function() {{
+        const report = document.getElementById("test-report");
+        const logs = [];
+        let passed = 0;
+
+        function log(msg) {{
+            logs.push(msg);
+            report.textContent = logs.join("\\n");
+        }}
+
+        function assert(cond, msg) {{
+            if (!cond) {{
+                throw new Error("FAIL: " + msg);
+            }}
+            passed++;
+            log("PASS: " + msg);
+        }}
+
+        const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+
+        try {{
+            localStorage.clear();
+
+            const scope = window.__ScoopScope;
+            assert(scope !== undefined, "__ScoopScope is exposed");
+
+            // 1. Type query in visible textarea#input-text -> saves draft in localStorage inputText
+            log("\\n--- 1. Visible Textarea Input & LocalStorage Sync ---");
+            const inputTextEl = document.getElementById("input-text");
+            assert(inputTextEl !== null, "Textarea #input-text exists in DOM");
+            inputTextEl.value = "Santa Monica City Council adopted local sustainability resolution.";
+            inputTextEl.dispatchEvent(new Event("input", {{ bubbles: true }}));
+            await delay(30);
+
+            const savedRaw = localStorage.getItem("scoopscope_workspace_v1");
+            assert(savedRaw !== null, "localStorage has scoopscope_workspace_v1 key");
+            const savedState = JSON.parse(savedRaw);
+            assert(savedState.sessions && savedState.sessions[0].inputText.includes("Santa Monica City Council"), "Draft query persisted in active session inputText");
+
+            // 2. Render researched claim with official LA Local City source (santamonica.gov)
+            log("\\n--- 2. Researched Claim & Cornell Notes Official Badges ---");
+            const mockExtract = {{
+                submission_id: "sub_sm_1",
+                submitted_text: "Santa Monica City Council adopted local sustainability resolution.",
+                source_url: "https://santamonica.gov/climate",
+                purpose: "check_claim",
+                interpreted_question: "Did Santa Monica adopt a sustainability resolution?",
+                claims: [
+                    {{
+                        id: "claim_sm_1",
+                        claim_type: "factual",
+                        normalized_assertion: "Santa Monica approved climate resolution 2024.",
+                        original_wording: "Santa Monica City Council adopted local sustainability resolution.",
+                        explicit_date: "2024",
+                        explicit_location: "Santa Monica"
+                    }}
+                ]
+            }};
+            scope.renderResults(mockExtract, scope.currentSeq);
+
+            const mockResearch = {{
+                claim_id: "claim_sm_1",
+                status_message: "Completed in 0.3s",
+                completed_in_seconds: 0.3,
+                retrieved_sources: [
+                    {{
+                        source_id: "src_sm_1",
+                        initial_url: "https://santamonica.gov/climate/action-plan",
+                        final_url: "https://santamonica.gov/climate/action-plan",
+                        domain: "santamonica.gov",
+                        title: "Santa Monica Climate Action Plan",
+                        publication_date: "2024-06-15",
+                        retrieval_timestamp: "2024-10-18T14:00:00Z",
+                        status: "fetched",
+                        jurisdiction_tag: "LA Local City Official",
+                        jurisdiction_code: "la_local_city"
+                    }}
+                ],
+                candidate_passages: [
+                    {{
+                        passage_id: "psg_sm_1",
+                        source_id: "src_sm_1",
+                        source_url: "https://santamonica.gov/climate/action-plan",
+                        source_title: "Santa Monica Climate Action Plan",
+                        exact_passage: "On June 15, 2024, the City Council enacted the Zero-Carbon Municipal Operations resolution.",
+                        context_surrounding: "On June 15, 2024, the City Council enacted the Zero-Carbon Municipal Operations resolution.",
+                        relevance_explanation: "Direct proof of municipal sustainability adoption.",
+                        publication_date: "2024-06-15",
+                        jurisdiction_badge: "LA Local City Official",
+                        jurisdiction_code: "la_local_city"
+                    }}
+                ]
+            }};
+
+            const card = document.getElementById("claim-card-claim_sm_1");
+            assert(card !== null, "Claim card rendered in DOM");
+            const resContainer = card.querySelector(".claim-research-container");
+            const resBtn = card.querySelector(".btn-research");
+
+            scope.claimResearchTabs["claim_sm_1"] = [{{
+                id: "run_sm_1",
+                title: "Tab 1: Initial Inquiry",
+                query: mockExtract.claims[0].normalized_assertion,
+                data: mockResearch,
+                timestamp: Date.now()
+            }}];
+            scope.activeClaimTabId["claim_sm_1"] = "run_sm_1";
+            resContainer.classList.remove("hidden");
+            scope.renderClaimResearchTabsWorkspace(resContainer, mockExtract.claims[0], resBtn, card);
+
+            const jurisBadge = card.querySelector(".jurisdiction-badge");
+            assert(jurisBadge !== null, "Official jurisdiction badge rendered in Cornell Notes cue card");
+            assert(jurisBadge.textContent.includes("LA Local City Official"), "Badge shows 'LA Local City Official'");
+            assert(jurisBadge.classList.contains("jurisdiction-la_local_city"), "Badge has class jurisdiction-la_local_city");
+
+            const dateBadge = card.querySelector(".cue-date-badge");
+            assert(dateBadge !== null && dateBadge.textContent.includes("2024-06-15"), "Publication date rendered in cue card");
+
+            // 3. Check quote checkbox in Cornell Notes card to select into Report Studio (#custom-report-section)
+            log("\\n--- 3. Check Quote & Reveal Report Studio (#custom-report-section) ---");
+            const quoteCb = card.querySelector(".quote-select-checkbox");
+            assert(quoteCb !== null, "Quote checkbox rendered in Cornell Notes bullet");
+            quoteCb.checked = true;
+            quoteCb.dispatchEvent(new Event("change", {{ bubbles: true }}));
+            await delay(30);
+
+            const customReportSec = document.getElementById("custom-report-section");
+            assert(customReportSec !== null, "#custom-report-section exists in DOM");
+            assert(!customReportSec.classList.contains("hidden"), "#custom-report-section is visible (not .hidden)");
+
+            // 4. Switch #citation-style-select to 'mla' and 'apa'
+            log("\\n--- 4. Citation Style Switching (MLA & APA) ---");
+            const citationSelect = document.getElementById("citation-style-select");
+            assert(citationSelect !== null, "#citation-style-select exists in DOM");
+
+            // Switch to MLA
+            citationSelect.value = "mla";
+            citationSelect.dispatchEvent(new Event("change", {{ bubbles: true }}));
+            await delay(30);
+
+            assert(!customReportSec.classList.contains("hidden"), "#custom-report-section remains visible on MLA switch");
+            const reportBody = customReportSec.querySelector(".report-content-body");
+            assert(reportBody !== null, "Report content body exists in #custom-report-section");
+            assert(reportBody.textContent.includes("Works Cited"), "Report contains Works Cited section");
+            assert(reportBody.textContent.includes("Accessed") && reportBody.textContent.includes("[LA Local City Official]"), "MLA format reflected with Accessed date and jurisdiction tag");
+
+            // Switch to APA
+            citationSelect.value = "apa";
+            citationSelect.dispatchEvent(new Event("change", {{ bubbles: true }}));
+            await delay(30);
+
+            assert(!customReportSec.classList.contains("hidden"), "#custom-report-section remains visible on APA switch");
+            assert(reportBody.textContent.includes("(2024)") && reportBody.textContent.includes("[LA Local City Official]"), "APA format reflected with (2024) and jurisdiction tag");
+
+            // 5. Open new session tab (#btn-new-session), type draft in #input-text, reload, switch back
+            log("\\n--- 5. Multi-Tab Session Reload & Session 1 Restoration ---");
+            const btnNewSess = document.getElementById("btn-new-session");
+            assert(btnNewSess !== null, "#btn-new-session exists in DOM");
+            btnNewSess.click();
+            await delay(30);
+
+            inputTextEl.value = "County of Los Angeles public health ordinance.";
+            inputTextEl.dispatchEvent(new Event("input", {{ bubbles: true }}));
+            await delay(30);
+
+            // Re-run loadWorkspaceFromStorage() to simulate reload
+            scope.loadWorkspaceFromStorage();
+            await delay(30);
+
+            const sessionTabs = document.querySelectorAll(".session-tab-btn");
+            assert(sessionTabs.length === 2, "2 session tabs restored after reload");
+            sessionTabs[0].click(); // Switch back to Session 1
+            await delay(30);
+
+            assert(inputTextEl.value.includes("Santa Monica City Council"), "Session 1 inputText restored");
+            const restoredBadge = document.querySelector(".jurisdiction-badge");
+            assert(restoredBadge !== null && restoredBadge.textContent.includes("LA Local City Official"), "Session 1 official jurisdiction badge restored");
+            const restoredCb = document.querySelector(".quote-select-checkbox");
+            assert(restoredCb !== null && restoredCb.checked === true, "Session 1 checked quote restored");
+            assert(!customReportSec.classList.contains("hidden"), "Session 1 #custom-report-section is visible");
+            assert(citationSelect.value === "apa", "Active citation style 'apa' restored");
+
+            // 6. Click #btn-clear-workspace and verify
+            log("\\n--- 6. One-Click Clear Workspace Reset ---");
+            const clearBtn = document.getElementById("btn-clear-workspace");
+            assert(clearBtn !== null, "#btn-clear-workspace exists in DOM");
+            clearBtn.click();
+            await delay(30);
+
+            assert(inputTextEl.value === "", "inputText is empty after clear workspace");
+            const claimInputEl = document.getElementById("claim-input");
+            assert(claimInputEl && claimInputEl.value === "", "claimInput is empty after clear workspace");
+            assert(customReportSec.classList.contains("hidden"), "#custom-report-section is hidden after clear workspace");
+            const resultsSec = document.getElementById("results-section");
+            assert(resultsSec.classList.contains("hidden"), "#results-section is hidden after clear workspace");
+            const remainingTabs = document.querySelectorAll(".session-tab-btn");
+            assert(remainingTabs.length === 1 && remainingTabs[0].textContent.includes("Session 1"), "Only single clean Session 1 tab remains");
+
+            log("\\nALL PHASE 4 SMOKE TESTS PASSED (" + passed + " assertions)");
+        }} catch (err) {{
+            report.className = "test-fail";
+            report.textContent = "FAIL: " + err.message + "\\n" + (err.stack || "");
+        }}
+    }})();
+    </script>
+</body>
+</html>"""
+
+    runner_file = tmp_path / "phase4_smoke_runner.html"
+    runner_file.write_text(runner_html, encoding="utf-8")
+
+    cmd = [
+        browser,
+        "--headless=new",
+        "--disable-gpu",
+        "--allow-file-access-from-files",
+        "--virtual-time-budget=8000",
+        "--dump-dom",
+        str(runner_file),
+    ]
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+    )
+
+    stdout = result.stdout
+    match = re.search(r'<div id="test-report"[^>]*>(.*?)</div>', stdout, re.DOTALL)
+    assert match is not None, f"Could not find #test-report in DOM output: {stdout[:500]}"
+    report_text = match.group(1)
+    print("\n--- PHASE 4 SMOKE TEST REPORT ---")
+    print(report_text.encode("ascii", errors="replace").decode("ascii"))
+    print("--- END PHASE 4 SMOKE TEST REPORT ---\n")
+
+    assert "ALL PHASE 4 SMOKE TESTS PASSED" in report_text, f"Phase 4 smoke tests failed:\n{report_text}"
+    assert "FAIL:" not in report_text, f"Phase 4 smoke test assertion failed:\n{report_text}"
+

@@ -1461,8 +1461,9 @@ body::before {
 
 .cue-source-meta {
     display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
     margin-top: 0.2rem;
     padding-top: 0.4rem;
     border-top: 1px solid rgba(255, 255, 255, 0.04);
@@ -1535,6 +1536,12 @@ body::before {
     background: rgba(111, 207, 151, 0.12);
     color: #6fcf97;
     border-color: rgba(111, 207, 151, 0.35);
+}
+
+.jurisdiction-la_local_city {
+    background: rgba(168, 85, 247, 0.12);
+    color: #c084fc;
+    border-color: rgba(168, 85, 247, 0.35);
 }
 
 /* Right Note Quote Bullet */
@@ -1810,6 +1817,7 @@ body::before {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 0.5rem;
     background: rgba(20, 24, 32, 0.85);
     backdrop-filter: blur(12px);
@@ -1900,10 +1908,16 @@ body::before {
     white-space: nowrap;
     transition: all var(--transition);
     font-family: inherit;
+    line-height: 1.2;
 }
 
 .btn-new-session:hover {
     background: rgba(62, 207, 180, 0.2);
+}
+
+.btn-new-session:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
 }
 
 .btn-clear-workspace {
@@ -1919,6 +1933,7 @@ body::before {
     transition: all var(--transition);
     font-family: inherit;
     margin-left: auto;
+    line-height: 1.2;
 }
 
 .btn-clear-workspace:hover {
@@ -1926,6 +1941,11 @@ body::before {
     border-color: #eb5757;
     color: #ff6b6b;
     transform: translateY(-1px);
+}
+
+.btn-clear-workspace:focus-visible {
+    outline: 2px solid #eb5757;
+    outline-offset: 2px;
 }
 
 /* --- Per-Claim Research Tabs Bar --- */
@@ -2163,6 +2183,7 @@ body::before {
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 0.5rem;
     margin-bottom: 0.85rem;
     padding-bottom: 0.65rem;

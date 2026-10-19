@@ -139,6 +139,17 @@
         saveWorkspaceToStorage();
     });
 
+    const claimInputInit = document.getElementById("claim-input");
+    if (claimInputInit) {
+        claimInputInit.addEventListener("input", () => {
+            if (inputText) inputText.value = claimInputInit.value;
+            charCount.textContent = claimInputInit.value.length.toLocaleString();
+            handleInputEdit();
+            updateActiveSessionState();
+            saveWorkspaceToStorage();
+        });
+    }
+
     sourceUrl.addEventListener("input", () => {
         handleInputEdit();
         updateActiveSessionState();
@@ -910,6 +921,70 @@
         return { wrapper, input };
     }
 
+    let primaryGeneratedMarkdown = "";
+    let primaryReportSources = [];
+
+    function renderCustomReport() {
+        const customSec = document.getElementById("custom-report-section");
+        const reportStudio = document.getElementById("report-studio-section");
+        const checked = Object.values(selectedQuotes).filter(item => item && item.checked);
+
+        if (checked.length === 0) {
+            if (customSec) customSec.classList.add("hidden");
+            if (reportStudio) reportStudio.classList.add("hidden");
+            return;
+        }
+
+        if (customSec) customSec.classList.remove("hidden");
+        if (reportStudio) reportStudio.classList.remove("hidden");
+
+        const count = checked.length;
+        const uniqueSources = new Set(checked.map(item => item.passage.source_url)).size;
+        const text = `${count} quote${count === 1 ? "" : "s"} from ${uniqueSources} source${uniqueSources === 1 ? "" : "s"} selected across tabs`;
+        document.querySelectorAll(".evidence-counter-badge").forEach(el => {
+            el.textContent = text;
+        });
+
+        document.querySelectorAll("#citation-style-select, .citation-style-select").forEach(sel => {
+            sel.value = activeCitationStyle || "standard";
+        });
+
+        primaryReportSources = checked.map(item => {
+            const p = item.passage;
+            let domain = "";
+            if (p.source_url) {
+                try {
+                    domain = new URL(p.source_url, "http://localhost").hostname.replace(/^www\./, "");
+                } catch (_) {
+                    domain = p.source_url;
+                }
+            }
+            return {
+                url: p.source_url,
+                domain: domain,
+                title: p.source_title || domain || "Source Record",
+                publication_date: p.publication_date,
+                retrieval_date: p.retrieval_timestamp || new Date().toISOString().split("T")[0],
+                jurisdiction_tag: p.jurisdiction_tag || p.jurisdiction_badge || "",
+                jurisdiction_code: p.jurisdiction_code || "",
+            };
+        });
+
+        const outputCard = document.getElementById("custom-report-output-card") || (customSec && customSec.querySelector(".report-output-card"));
+        const outputBody = outputCard ? outputCard.querySelector(".report-content-body") : null;
+
+        if (outputCard && outputBody) {
+            const inquiryTitle = currentConfirmedScopeQuestion || (checked[0] && checked[0].passage && (checked[0].passage.relevance_explanation || checked[0].passage.exact_passage)) || "Investigation Findings";
+            const passagesList = checked.map(c => `- "${c.passage.exact_passage}" ([Source](${c.passage.source_url}))`).join("\n");
+            const worksCitedText = primaryReportSources.map((s, idx) => `${idx + 1}. ${formatCitation(s, activeCitationStyle || "standard")}`).join("\n");
+
+            primaryGeneratedMarkdown = `# Investigation Report: ${inquiryTitle}\n\n## Topic & Inquiry Synthesis\nRetrieved verbatim evidence addressing terms in the inquiry. Review the extracted quotes below.\n\n## Structured Evidence Bank\n${passagesList}\n\n## Works Cited\n${worksCitedText}`;
+
+            outputBody.innerHTML = renderMarkdown(primaryGeneratedMarkdown);
+            outputCard.classList.remove("hidden");
+        }
+    }
+
     function updateAllEvidenceCounters() {
         const checked = Object.values(selectedQuotes).filter(item => item && item.checked);
         const count = checked.length;
@@ -918,6 +993,17 @@
         document.querySelectorAll(".evidence-counter-badge").forEach(el => {
             el.textContent = text;
         });
+
+        const customReportSec = document.getElementById("custom-report-section");
+        const reportStudioSec = document.getElementById("report-studio-section");
+        if (count > 0) {
+            if (customReportSec) customReportSec.classList.remove("hidden");
+            if (reportStudioSec) reportStudioSec.classList.remove("hidden");
+            renderCustomReport();
+        } else {
+            if (customReportSec) customReportSec.classList.add("hidden");
+            if (reportStudioSec) reportStudioSec.classList.add("hidden");
+        }
     }
 
     // --- Milestone 4D Report Export & Citation Helpers ---
@@ -1089,7 +1175,6 @@
 
         const citationSelect = document.createElement("select");
         citationSelect.className = "report-citation-select citation-style-select";
-        citationSelect.id = "citation-style-select";
         const citationOptions = [
             { value: "standard", label: "Standard Numbered — [1] Title — Domain (Date) [Jurisdiction]" },
             { value: "apa", label: "APA (7th Edition) — Author/Title. (Year or n.d.). Site. URL [Jurisdiction]" },
@@ -1102,10 +1187,6 @@
             citationSelect.appendChild(opt);
         });
         citationSelect.value = activeCitationStyle || "standard";
-        citationSelect.addEventListener("change", (e) => {
-            activeCitationStyle = e.target.value;
-            saveWorkspaceToStorage();
-        });
         citationGroup.appendChild(citationSelect);
         controls.appendChild(citationGroup);
 
@@ -1231,10 +1312,14 @@
         citationSelect.addEventListener("change", () => {
             activeCitationStyle = citationSelect.value;
             saveWorkspaceToStorage();
+            document.querySelectorAll(".citation-style-select, #citation-style-select").forEach(sel => {
+                sel.value = activeCitationStyle;
+            });
             if (lastGeneratedMarkdown && activeReportSources.length > 0) {
                 lastGeneratedMarkdown = updateReportWorksCited(lastGeneratedMarkdown, activeReportSources, citationSelect.value);
                 outputBody.innerHTML = renderMarkdown(lastGeneratedMarkdown);
             }
+            renderCustomReport();
         });
 
         generateBtn.addEventListener("click", async () => {
@@ -1428,8 +1513,11 @@
                 cueMeta.appendChild(cueDate);
 
                 // Milestone 4C: Deterministic Official Jurisdiction Badge
-                const jurisTag = p.jurisdiction_tag || (data.retrieved_sources && (data.retrieved_sources.find(s => s.source_id === p.source_id || s.initial_url === p.source_url || s.final_url === p.source_url) || {}).jurisdiction_tag);
-                const jurisCode = p.jurisdiction_code || (data.retrieved_sources && (data.retrieved_sources.find(s => s.source_id === p.source_id || s.initial_url === p.source_url || s.final_url === p.source_url) || {}).jurisdiction_code);
+                let jurisTag = p.jurisdiction_badge || p.jurisdiction_tag || (data.retrieved_sources && (data.retrieved_sources.find(s => s.source_id === p.source_id || s.initial_url === p.source_url || s.final_url === p.source_url) || {}).jurisdiction_tag);
+                let jurisCode = p.jurisdiction_code || (data.retrieved_sources && (data.retrieved_sources.find(s => s.source_id === p.source_id || s.initial_url === p.source_url || s.final_url === p.source_url) || {}).jurisdiction_code);
+                if (jurisTag === "LA Local City Official" && !jurisCode) {
+                    jurisCode = "la_local_city";
+                }
 
                 if (jurisTag) {
                     const cueJuris = document.createElement("span");
@@ -1899,9 +1987,11 @@
         if (!activeSessionId) return;
         const sess = sessionInquiries.find(s => s.id === activeSessionId);
         if (!sess) return;
-        sess.inputText = inputText.value;
         const claimInput = document.getElementById("claim-input");
-        if (claimInput) claimInput.value = inputText.value;
+        const effectiveText = (inputText && inputText.value !== undefined) ? inputText.value : ((claimInput && claimInput.value !== undefined) ? claimInput.value : "");
+        sess.inputText = effectiveText;
+        if (inputText) inputText.value = effectiveText;
+        if (claimInput) claimInput.value = effectiveText;
         sess.sourceUrl = sourceUrl ? sourceUrl.value : null;
         sess.scopeQuestion = currentConfirmedScopeQuestion;
         sess.scopeEdited = scopeQuestionManuallyEdited;
@@ -1912,6 +2002,28 @@
         sess.clarificationExchanges = clarificationExchanges;
         sess.isClarifying = false;
         sess.isResearching = false;
+    }
+
+    function saveCurrentSessionSnapshot() {
+        updateActiveSessionState();
+    }
+
+    function restoreSessionSnapshot(target) {
+        if (!target) return;
+        const claimInput = document.getElementById("claim-input");
+        const effectiveText = target.inputText || "";
+        if (inputText) inputText.value = effectiveText;
+        if (claimInput) claimInput.value = effectiveText;
+        if (charCount) charCount.textContent = effectiveText.length.toLocaleString();
+        if (sourceUrl) sourceUrl.value = target.sourceUrl || "";
+        currentSourceUrl = target.sourceUrl || null;
+        currentConfirmedScopeQuestion = target.scopeQuestion || "";
+        scopeQuestionManuallyEdited = Boolean(target.scopeEdited);
+        currentClaims = target.claims || [];
+        claimResearchTabs = target.claimResearchTabs || {};
+        activeClaimTabId = target.activeClaimTabId || {};
+        selectedQuotes = target.selectedQuotes || {};
+        clarificationExchanges = target.clarificationExchanges || [];
     }
 
     function createEmptySession(title) {
@@ -2066,6 +2178,16 @@
             sel.value = activeCitationStyle;
         });
 
+        const hasCheckedQuotes = Object.values(selectedQuotes).some(q => q && q.checked);
+        if (hasCheckedQuotes) {
+            renderCustomReport();
+        } else {
+            const customReportSec = document.getElementById("custom-report-section");
+            if (customReportSec) customReportSec.classList.add("hidden");
+            const reportStudio = document.getElementById("report-studio-section");
+            if (reportStudio) reportStudio.classList.add("hidden");
+        }
+
         return true;
     }
 
@@ -2106,9 +2228,13 @@
         resultsSection.classList.add("hidden");
         if (clarificationSection) clarificationSection.classList.add("hidden");
         if (stickyInquiryBar) stickyInquiryBar.classList.add("hidden");
+        const customReportSec = document.getElementById("custom-report-section");
+        if (customReportSec) customReportSec.classList.add("hidden");
         const reportStudio = document.getElementById("report-studio-section");
         if (reportStudio) reportStudio.classList.add("hidden");
         document.querySelectorAll(".report-output-card, .report-builder-panel").forEach(el => el.classList.add("hidden"));
+        primaryGeneratedMarkdown = "";
+        primaryReportSources = [];
         const staleBanner = document.getElementById("claims-outdated-banner");
         if (staleBanner) staleBanner.remove();
 
@@ -2193,19 +2319,7 @@
         if (!target) return;
 
         activeSessionId = sessId;
-        inputText.value = target.inputText || "";
-        const claimInput = document.getElementById("claim-input");
-        if (claimInput) claimInput.value = target.inputText || "";
-        charCount.textContent = (target.inputText || "").length.toLocaleString();
-        if (sourceUrl) sourceUrl.value = target.sourceUrl || "";
-        currentSourceUrl = target.sourceUrl || null;
-        currentConfirmedScopeQuestion = target.scopeQuestion || "";
-        scopeQuestionManuallyEdited = Boolean(target.scopeEdited);
-        currentClaims = target.claims || [];
-        claimResearchTabs = target.claimResearchTabs || {};
-        activeClaimTabId = target.activeClaimTabId || {};
-        selectedQuotes = target.selectedQuotes || {};
-        clarificationExchanges = target.clarificationExchanges || [];
+        restoreSessionSnapshot(target);
 
         renderSessionTabs();
         updateStickyInquiryBar(currentConfirmedScopeQuestion || target.inputText);
@@ -2267,6 +2381,11 @@
         resultsSection.classList.add("hidden");
         if (clarificationSection) clarificationSection.classList.add("hidden");
         if (stickyInquiryBar) stickyInquiryBar.classList.add("hidden");
+        const customReportSec = document.getElementById("custom-report-section");
+        if (customReportSec) customReportSec.classList.add("hidden");
+        const reportStudio = document.getElementById("report-studio-section");
+        if (reportStudio) reportStudio.classList.add("hidden");
+        document.querySelectorAll(".report-output-card, .report-builder-panel").forEach(el => el.classList.add("hidden"));
         const staleBanner = document.getElementById("claims-outdated-banner");
         if (staleBanner) staleBanner.remove();
         renderSessionTabs();
@@ -2506,6 +2625,132 @@
         });
     }
 
+    // Milestone 4F: Wire controls in #custom-report-section
+    const customCitationSelect = document.getElementById("citation-style-select");
+    if (customCitationSelect) {
+        customCitationSelect.addEventListener("change", (e) => {
+            activeCitationStyle = e.target.value;
+            saveWorkspaceToStorage();
+            renderCustomReport();
+        });
+    }
+
+    const btnCustomSelectAll = document.querySelector("#custom-report-section .btn-select-all-quotes");
+    if (btnCustomSelectAll) {
+        btnCustomSelectAll.addEventListener("click", () => {
+            Object.keys(selectedQuotes).forEach(k => {
+                if (selectedQuotes[k]) selectedQuotes[k].checked = true;
+            });
+            document.querySelectorAll(".quote-select-checkbox").forEach(cb => { cb.checked = true; });
+            updateAllEvidenceCounters();
+            updateActiveSessionState();
+            saveWorkspaceToStorage();
+        });
+    }
+
+    const btnCustomClearAll = document.querySelector("#custom-report-section .btn-clear-quotes");
+    if (btnCustomClearAll) {
+        btnCustomClearAll.addEventListener("click", () => {
+            Object.keys(selectedQuotes).forEach(k => {
+                if (selectedQuotes[k]) selectedQuotes[k].checked = false;
+            });
+            document.querySelectorAll(".quote-select-checkbox").forEach(cb => { cb.checked = false; });
+            updateAllEvidenceCounters();
+            updateActiveSessionState();
+            saveWorkspaceToStorage();
+        });
+    }
+
+    const btnCustomGen = document.getElementById("btn-generate-custom-report");
+    if (btnCustomGen) {
+        btnCustomGen.addEventListener("click", async () => {
+            const checkedItems = Object.values(selectedQuotes).filter(item => item && item.checked);
+            if (checkedItems.length === 0) {
+                alert("Please select at least one quote to include in the report.");
+                return;
+            }
+            btnCustomGen.disabled = true;
+            btnCustomGen.textContent = "Synthesizing Report…";
+            try {
+                const reqBody = {
+                    inquiry_title: currentConfirmedScopeQuestion || "Investigation Findings",
+                    report_vibe: (document.getElementById("report-vibe-select") || {}).value || "objective_brief",
+                    citation_style: activeCitationStyle || "standard",
+                    include_summary: true,
+                    include_evidence_bank: true,
+                    include_works_cited: true,
+                    include_open_questions: true,
+                    selected_passages: checkedItems.map(item => ({
+                        passage_id: item.passage.passage_id,
+                        exact_passage: item.passage.exact_passage,
+                        context_surrounding: item.passage.context_surrounding,
+                        source_url: item.passage.source_url,
+                        relevance_explanation: item.passage.relevance_explanation || item.passage.relevance_note,
+                        publication_date: item.passage.publication_date,
+                    })),
+                    sources: primaryReportSources,
+                };
+                const res = await fetch("/api/report", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(reqBody),
+                });
+                if (res.ok) {
+                    const repData = await res.json();
+                    primaryGeneratedMarkdown = repData.markdown_content;
+                }
+            } catch (_) {
+                // Keep local draft synthesis
+            } finally {
+                btnCustomGen.disabled = false;
+                btnCustomGen.innerHTML = `<span>Synthesize Custom Report &amp; Evidence Bank</span> <span aria-hidden="true">&rarr;</span>`;
+                const outputCard = document.getElementById("custom-report-output-card");
+                const outputBody = outputCard ? outputCard.querySelector(".report-content-body") : null;
+                if (outputCard && outputBody && primaryGeneratedMarkdown) {
+                    outputBody.innerHTML = renderMarkdown(primaryGeneratedMarkdown);
+                    outputCard.classList.remove("hidden");
+                }
+            }
+        });
+    }
+
+    const customCopyMdBtn = document.querySelector("#custom-report-section .btn-copy-report");
+    if (customCopyMdBtn) {
+        customCopyMdBtn.addEventListener("click", async () => {
+            if (!primaryGeneratedMarkdown) return;
+            try { await navigator.clipboard.writeText(primaryGeneratedMarkdown); } catch (_) {}
+            customCopyMdBtn.textContent = "Copied Markdown!";
+            setTimeout(() => { customCopyMdBtn.textContent = "Copy Markdown"; }, 1500);
+        });
+    }
+
+    const customCopyPlainBtn = document.querySelector("#custom-report-section .btn-copy-plaintext-report");
+    if (customCopyPlainBtn) {
+        customCopyPlainBtn.addEventListener("click", async () => {
+            if (!primaryGeneratedMarkdown) return;
+            const plain = stripMarkdownToPlainText(primaryGeneratedMarkdown);
+            try { await navigator.clipboard.writeText(plain); } catch (_) {}
+            customCopyPlainBtn.textContent = "Copied Plain Text!";
+            setTimeout(() => { customCopyPlainBtn.textContent = "Copy Plain Text"; }, 1500);
+        });
+    }
+
+    const customDownloadBtn = document.querySelector("#custom-report-section .btn-download-report");
+    if (customDownloadBtn) {
+        customDownloadBtn.addEventListener("click", () => {
+            if (!primaryGeneratedMarkdown) return;
+            const filename = `scoopscope-report-${Date.now()}.md`;
+            downloadFile(filename, primaryGeneratedMarkdown, "text/markdown");
+            customDownloadBtn.textContent = "Downloaded!";
+            setTimeout(() => { customDownloadBtn.textContent = "Download .md Report"; }, 1500);
+        });
+    }
+
+    const customPrintBtn = document.querySelector("#custom-report-section .btn-print-report");
+    if (customPrintBtn) {
+        customPrintBtn.addEventListener("click", () => { window.print(); });
+    }
+
     // Expose for testing if running in test environment
     if (typeof window !== "undefined") {
         window.__ScoopScope = {
@@ -2532,6 +2777,9 @@
             get selectedQuotes() { return selectedQuotes; },
             get activeCitationStyle() { return activeCitationStyle; },
             set activeCitationStyle(val) { activeCitationStyle = val; },
+            saveCurrentSessionSnapshot,
+            restoreSessionSnapshot,
+            renderCustomReport,
             saveWorkspaceToStorage,
             loadWorkspaceFromStorage,
             clearWorkspace,
