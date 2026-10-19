@@ -1,10 +1,10 @@
 # ScoopScope — Project Handoff & Architecture Baseline
 
-**Document Version**: 1.3  
-**Current Milestone**: Milestone 4E Complete (Decisions 014 & 015)  
-**Baseline Commit**: `e054d1e`  
+**Document Version**: 1.4  
+**Current Milestone**: Milestone 4F Complete (Decision 016) & Phase 4 Closed  
+**Baseline Commit**: `b049fc0`  
 **Workspace Root**: `c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope`  
-**Test Suite Status**: 278 passed offline (100% passing) across 11 test suites  
+**Test Suite Status**: 280 passed offline (100% passing) across 11 test suites  
 
 ---
 
@@ -142,6 +142,7 @@ All contributors and agents must uphold these non-negotiable rules:
   - Reset transient loading state spinners (`isClarifying = false`, `isResearching = false`) on restore to prevent permanently frozen spinner states after interrupting active network calls.
   - Implemented quota-exceeded and disabled-storage defensive error handling without crashing UI interactions.
   - Shipped at `e054d1e` with 278 passing tests offline across 11 test suites.
+- **Decision 016 (Milestone 4F)**: Execute Milestone 4F (`milestone-4f-live-smoke-and-ui-polish.md`) — full Phase 4 end-to-end headless Chrome & FastAPI live smoke verification plus DOM/CSS synchronization across `#input-text`, `#custom-report-section`, `#session-tabs-bar`, and `localStorage` restore; shipped at `b049fc0` with 280 passing tests.
 
 ---
 
@@ -197,5 +198,11 @@ All contributors and agents must uphold these non-negotiable rules:
     - One-click instant `#btn-clear-workspace` reset button with zero blocking confirmation dialogs.
     - Transient loading state reset (`isClarifying = false`, `isResearching = false`) on restore to eliminate stuck spinners.
     - Shipped at commit `e054d1e` with 278 tests passing offline across 11 test suites.
+13. **Milestone 014 (Milestone 4F)**: Live End-to-End Smoke Verification & UI Polish Pass
+    - Full Phase 4 (4C + 4D + 4E) end-to-end headless Chrome browser smoke tests and live FastAPI static/index serving contract tests.
+    - Synchronized visible `#input-text` and `#claim-input` two-way bindings, `#custom-report-section` visibility, and live citation style switching.
+    - Verified multi-tab session restore, selected quote rehydration, official LA local city badges, and instant `#btn-clear-workspace` reset.
+    - Shipped at commit `b049fc0` with 280 tests passing offline across 11 test suites.
+
 
 

@@ -120,3 +120,5 @@ Here are four technical terms ScoopScope uses and why they matter to you:
 - **Milestone 011 (4C Close-Out & Handoff Initialization)**: Cumulative handoff architecture (`.handoff-builder.md` and `.handoff-planner.md`), mandatory close-out rules in `AGENTS.md`, and staged Milestone 4D spec.
 - **Milestone 012 (4D)**: Custom Report Studio exports (Copy MD, Copy Plain Text, Download `.md`), deterministic Citation Style Selector (Standard, APA 7th ed with strict `(n.d.)`, MLA 9th ed with strict `Accessed <date>`) with zero author/date fabrication, and LA County independent municipal classification and search ranking prioritization (`0f5dddf`, 276 passing tests).
 - **Milestone 013 (4E)**: Multi-tab workspace `localStorage` auto-save & reload restore, one-click Clear Workspace reset button, and transient spinner guardrails (`e054d1e`, 278 passing tests).
+- **Milestone 014 (4F)**: Full Phase 4 live end-to-end headless Chrome browser smoke tests, FastAPI static/index serving contract tests, and Report Studio / workspace DOM synchronization polish (`b049fc0`, 280 passing tests).
+
