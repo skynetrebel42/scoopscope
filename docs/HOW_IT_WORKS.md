@@ -99,6 +99,10 @@ Here are four technical terms ScoopScope uses and why they matter to you:
 - **What it is**: Instant one-click report export (Markdown, Plain Text, downloadable `.md`) and deterministic citation formatting (Standard Numbered, APA 7th ed with `(n.d.)`, MLA 9th ed with `Accessed <date>`) built strictly from verified page metadata with zero author or date hallucination.
 - **Why it matters**: Journalists, students, and civic researchers need publication-ready citations they can trust. ScoopScope never invents authors or dates when sources omit them.
 
+### 7. Automatic Workspace Save & Clear Workspace Reset
+- **What it is**: Silent auto-saving of your entire multi-tab session into your browser's private local storage (`localStorage`) as you work, paired with an instant **"Clear Workspace"** button in the header.
+- **Why it matters**: If you accidentally close your tab or refresh your browser, your entire investigation—including your active inquiries, confirmed scopes, Cornell notes evidence, and chosen quotes in the Evidence Bank—is instantly restored. When you're ready to start a completely clean investigation, one click resets the slate immediately without annoying popup prompts.
+
 ---
 
 ## 4. Shipped Milestones Log
@@ -115,3 +119,4 @@ Here are four technical terms ScoopScope uses and why they matter to you:
 - **Milestone 010 (4C)**: Los Angeles City vs. County jurisdiction guardrails, deterministic official domain classification, civic clarification cards, Cornell notes jurisdiction badges, and 92 new tests (`94baeb2`, 256 passing tests total).
 - **Milestone 011 (4C Close-Out & Handoff Initialization)**: Cumulative handoff architecture (`.handoff-builder.md` and `.handoff-planner.md`), mandatory close-out rules in `AGENTS.md`, and staged Milestone 4D spec.
 - **Milestone 012 (4D)**: Custom Report Studio exports (Copy MD, Copy Plain Text, Download `.md`), deterministic Citation Style Selector (Standard, APA 7th ed with strict `(n.d.)`, MLA 9th ed with strict `Accessed <date>`) with zero author/date fabrication, and LA County independent municipal classification and search ranking prioritization (`0f5dddf`, 276 passing tests).
+- **Milestone 013 (4E)**: Multi-tab workspace `localStorage` auto-save & reload restore, one-click Clear Workspace reset button, and transient spinner guardrails (`e054d1e`, 278 passing tests).

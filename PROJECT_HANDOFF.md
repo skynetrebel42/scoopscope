@@ -1,10 +1,10 @@
 # ScoopScope — Project Handoff & Architecture Baseline
 
-**Document Version**: 1.2  
-**Current Milestone**: Milestone 4D Complete (Decisions 012 & 013)  
-**Baseline Commit**: `0f5dddf`  
+**Document Version**: 1.3  
+**Current Milestone**: Milestone 4E Complete (Decisions 014 & 015)  
+**Baseline Commit**: `e054d1e`  
 **Workspace Root**: `c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope`  
-**Test Suite Status**: 276 passed offline (100% passing) across 11 test suites  
+**Test Suite Status**: 278 passed offline (100% passing) across 11 test suites  
 
 ---
 
@@ -133,6 +133,15 @@ All contributors and agents must uphold these non-negotiable rules:
   - Expanded `classify_source_jurisdiction` in `backend/app/jurisdiction.py` to recognize 11 independent LA County incorporated municipalities (`la_local_city`) including Norwalk, Long Beach, Pasadena, Santa Monica, Glendale, Culver City, Beverly Hills, Torrance, Inglewood, Burbank, and Pomona.
   - Boosted matching official municipal domains ahead in `backend/app/research.py` candidate search results.
   - Elevated test suite to 276 passing tests offline across 11 test suites; committed at `0f5dddf`.
+- **Decision 014 (Milestone 4E)**: Advance to Milestone 4E: Multi-Tab Workspace `localStorage` Auto-Save & Restore + Clear Workspace Reset
+  - Implemented automatic JSON serialization and restoration of multi-tab workspace state across page refreshes under `localStorage` key `scoopscope_workspace_v1`.
+  - Preserved session tabs, active tab selection, confirmed inquiry scopes, clarification rounds, claims, Cornell Notes evidence cards, Evidence Bank selected quotes, and synthesized report drafts without data loss.
+- **Decision 015 (Milestone 4E Implementation Polish)**: One-Click Instant Workspace Reset, Map Serialization, and Transient Spinner Guardrails
+  - Enforced one-click instant reset on `#btn-clear-workspace` with zero blocking `window.confirm()` popups per UX requirements.
+  - Bidirectional `Map` <-> `[[key, quote], ...]` JSON array serialization for `selectedQuotes` ensuring full fidelity across persistence cycles.
+  - Reset transient loading state spinners (`isClarifying = false`, `isResearching = false`) on restore to prevent permanently frozen spinner states after interrupting active network calls.
+  - Implemented quota-exceeded and disabled-storage defensive error handling without crashing UI interactions.
+  - Shipped at `e054d1e` with 278 passing tests offline across 11 test suites.
 
 ---
 
@@ -182,4 +191,11 @@ All contributors and agents must uphold these non-negotiable rules:
     - Deterministic citation formatting (Standard Numbered, APA 7th ed with strict `(n.d.)`, MLA 9th ed with strict `Accessed <date>`) with zero fabrication and bracketed jurisdiction tags.
     - LA County independent municipal domain classification (`la_local_city`) and research search candidate prioritization.
     - Commit `0f5dddf`, 276 tests passing across 11 test suites.
+12. **Milestone 013 (Milestone 4E)**: Multi-Tab Workspace `localStorage` Auto-Save & Restore + Clear Workspace Reset
+    - Automatic JSON serialization and restoration of multi-tab workspace state across reloads under `scoopscope_workspace_v1`.
+    - Bidirectional `Map` <-> `[[key, quote], ...]` serialization for `selectedQuotes` Evidence Bank items.
+    - One-click instant `#btn-clear-workspace` reset button with zero blocking confirmation dialogs.
+    - Transient loading state reset (`isClarifying = false`, `isResearching = false`) on restore to eliminate stuck spinners.
+    - Shipped at commit `e054d1e` with 278 tests passing offline across 11 test suites.
+
 
