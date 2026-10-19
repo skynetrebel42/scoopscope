@@ -132,23 +132,10 @@
     // --- Character counter & input changes ---
     inputText.addEventListener("input", () => {
         charCount.textContent = inputText.value.length.toLocaleString();
-        const claimInput = document.getElementById("claim-input");
-        if (claimInput) claimInput.value = inputText.value;
         handleInputEdit();
         updateActiveSessionState();
         saveWorkspaceToStorage();
     });
-
-    const claimInputInit = document.getElementById("claim-input");
-    if (claimInputInit) {
-        claimInputInit.addEventListener("input", () => {
-            if (inputText) inputText.value = claimInputInit.value;
-            charCount.textContent = claimInputInit.value.length.toLocaleString();
-            handleInputEdit();
-            updateActiveSessionState();
-            saveWorkspaceToStorage();
-        });
-    }
 
     sourceUrl.addEventListener("input", () => {
         handleInputEdit();
@@ -228,7 +215,7 @@
 
     if (btnStickyEdit) {
         btnStickyEdit.addEventListener("click", () => {
-            const formEl = document.getElementById("extraction-form") || document.getElementById("input-section");
+            const formEl = document.getElementById("extraction-form");
             if (formEl) {
                 formEl.classList.remove("compact-collapsed");
             }
@@ -238,20 +225,6 @@
             } else if (clarificationSection && !clarificationSection.classList.contains("hidden")) {
                 clarificationSection.scrollIntoView({ behavior: "smooth", block: "start" });
             } else if (inputText) {
-                inputText.scrollIntoView({ behavior: "smooth", block: "center" });
-                inputText.focus();
-            }
-        });
-    }
-
-    const btnEditInquiry = document.getElementById("btn-edit-inquiry");
-    if (btnEditInquiry) {
-        btnEditInquiry.addEventListener("click", () => {
-            const formEl = document.getElementById("extraction-form") || document.getElementById("input-section");
-            if (formEl) {
-                formEl.classList.remove("compact-collapsed");
-            }
-            if (inputText) {
                 inputText.scrollIntoView({ behavior: "smooth", block: "center" });
                 inputText.focus();
             }
@@ -911,7 +884,7 @@
                 if (container && card) {
                     renderClaimResearchTabsWorkspace(container, claim, button, card);
                 }
-                const formEl = document.getElementById("extraction-form") || document.getElementById("input-section");
+                const formEl = document.getElementById("extraction-form");
                 if (formEl) formEl.classList.add("compact-collapsed");
             } else {
                 saveWorkspaceToStorage();
@@ -1116,17 +1089,14 @@
 
     function renderCustomReport() {
         const customSec = document.getElementById("custom-report-section");
-        const reportStudio = document.getElementById("report-studio-section");
         const checked = Object.values(selectedQuotes).filter(item => item && item.checked);
 
         if (checked.length === 0) {
             if (customSec) customSec.classList.add("hidden");
-            if (reportStudio) reportStudio.classList.add("hidden");
             return;
         }
 
         if (customSec) customSec.classList.remove("hidden");
-        if (reportStudio) reportStudio.classList.remove("hidden");
 
         const count = checked.length;
         const uniqueSources = new Set(checked.map(item => item.passage.source_url)).size;
@@ -1224,7 +1194,6 @@
         });
 
         const customReportSec = document.getElementById("custom-report-section");
-        const reportStudioSec = document.getElementById("report-studio-section");
         const canShow = hasResearchedClaimOrSelectedQuotes();
 
         if (canShow && count > 0) {
@@ -1232,28 +1201,16 @@
                 customReportSec.classList.remove("hidden");
                 customReportSec.removeAttribute("hidden");
             }
-            if (reportStudioSec) {
-                reportStudioSec.classList.remove("hidden");
-                reportStudioSec.removeAttribute("hidden");
-            }
             renderCustomReport();
         } else if (canShow) {
             if (customReportSec) {
                 customReportSec.classList.remove("hidden");
                 customReportSec.removeAttribute("hidden");
             }
-            if (reportStudioSec) {
-                reportStudioSec.classList.remove("hidden");
-                reportStudioSec.removeAttribute("hidden");
-            }
         } else {
             if (customReportSec) {
                 customReportSec.classList.add("hidden");
                 customReportSec.setAttribute("hidden", "");
-            }
-            if (reportStudioSec) {
-                reportStudioSec.classList.add("hidden");
-                reportStudioSec.setAttribute("hidden", "");
             }
         }
     }
@@ -1914,11 +1871,7 @@
             panel.appendChild(cornellGrid);
         }
 
-        // Report & Evidence Bank Studio Panel (only fallback inline if #custom-report-section is not in the page)
-        if (!document.getElementById("custom-report-section")) {
-            const reportBuilderPanel = renderReportBuilderPanel(claim, data);
-            panel.appendChild(reportBuilderPanel);
-        }
+
 
 
         // 3. Actionable Explore Further
@@ -2265,11 +2218,9 @@
         if (!activeSessionId) return;
         const sess = sessionInquiries.find(s => s.id === activeSessionId);
         if (!sess) return;
-        const claimInput = document.getElementById("claim-input");
-        const effectiveText = (inputText && inputText.value !== undefined) ? inputText.value : ((claimInput && claimInput.value !== undefined) ? claimInput.value : "");
+        const effectiveText = (inputText && inputText.value !== undefined) ? inputText.value : "";
         sess.inputText = effectiveText;
         if (inputText) inputText.value = effectiveText;
-        if (claimInput) claimInput.value = effectiveText;
         sess.sourceUrl = sourceUrl ? sourceUrl.value : null;
         sess.scopeQuestion = currentConfirmedScopeQuestion;
         sess.scopeEdited = scopeQuestionManuallyEdited;
@@ -2288,10 +2239,8 @@
 
     function restoreSessionSnapshot(target) {
         if (!target) return;
-        const claimInput = document.getElementById("claim-input");
         const effectiveText = target.inputText || "";
         if (inputText) inputText.value = effectiveText;
-        if (claimInput) claimInput.value = effectiveText;
         if (charCount) charCount.textContent = effectiveText.length.toLocaleString();
         if (sourceUrl) sourceUrl.value = target.sourceUrl || "";
         currentSourceUrl = target.sourceUrl || null;
@@ -2459,14 +2408,8 @@
         const activeSess = sessionInquiries.find(s => s.id === activeSessionId) || sessionInquiries[0];
         if (!activeSess || !activeSess.data) {
             if (confirmedScopeCard) confirmedScopeCard.classList.add("hidden");
-            const scopeBanner = document.getElementById("confirmed-scope-banner");
-            if (scopeBanner) scopeBanner.classList.add("hidden");
-            const claimsSec = document.getElementById("claims-section");
-            if (claimsSec) claimsSec.classList.add("hidden");
             const customReportSec = document.getElementById("custom-report-section");
             if (customReportSec) customReportSec.classList.add("hidden");
-            const reportStudio = document.getElementById("report-studio-section");
-            if (reportStudio) reportStudio.classList.add("hidden");
         } else {
             const hasCheckedQuotes = Object.values(selectedQuotes).some(q => q && q.checked);
             if (hasCheckedQuotes) {
@@ -2474,8 +2417,6 @@
             } else {
                 const customReportSec = document.getElementById("custom-report-section");
                 if (customReportSec) customReportSec.classList.add("hidden");
-                const reportStudio = document.getElementById("report-studio-section");
-                if (reportStudio) reportStudio.classList.add("hidden");
             }
         }
 
@@ -2497,8 +2438,7 @@
         inputText.value = "";
         charCount.textContent = "0";
         if (sourceUrl) sourceUrl.value = "";
-        const claimInput = document.getElementById("claim-input");
-        if (claimInput) claimInput.value = "";
+
         currentSubmissionId = null;
         currentSourceUrl = null;
         currentClarificationData = null;
@@ -2520,20 +2460,14 @@
         if (clarificationSection) clarificationSection.classList.add("hidden");
         if (stickyInquiryBar) stickyInquiryBar.classList.add("hidden");
         if (confirmedScopeCard) confirmedScopeCard.classList.add("hidden");
-        const scopeBanner = document.getElementById("confirmed-scope-banner");
-        if (scopeBanner) scopeBanner.classList.add("hidden");
-        const claimsSec = document.getElementById("claims-section");
-        if (claimsSec) claimsSec.classList.add("hidden");
         if (claimsList) claimsList.innerHTML = "";
         if (submittedText) submittedText.textContent = "";
         if (submittedUrlRow) submittedUrlRow.classList.add("hidden");
-        const formEl = document.getElementById("extraction-form") || document.getElementById("input-section");
+        const formEl = document.getElementById("extraction-form");
         if (formEl) formEl.classList.remove("compact-collapsed");
 
         const customReportSec = document.getElementById("custom-report-section");
         if (customReportSec) customReportSec.classList.add("hidden");
-        const reportStudio = document.getElementById("report-studio-section");
-        if (reportStudio) reportStudio.classList.add("hidden");
         document.querySelectorAll(".report-output-card, .report-builder-panel").forEach(el => el.classList.add("hidden"));
         primaryGeneratedMarkdown = "";
         primaryReportSources = [];
@@ -2629,16 +2563,12 @@
         const staleBanner = document.getElementById("claims-outdated-banner");
         if (staleBanner) staleBanner.remove();
 
-        const formEl = document.getElementById("extraction-form") || document.getElementById("input-section");
+        const formEl = document.getElementById("extraction-form");
         const confirmedScope = document.getElementById("confirmed-scope-card");
-        const scopeBanner = document.getElementById("confirmed-scope-banner");
-        const claimsSec = document.getElementById("claims-section");
 
         if (target.isClarification && target.data) {
             resultsSection.classList.add("hidden");
             if (confirmedScope) confirmedScope.classList.add("hidden");
-            if (scopeBanner) scopeBanner.classList.add("hidden");
-            if (claimsSec) claimsSec.classList.add("hidden");
             if (formEl) formEl.classList.remove("compact-collapsed");
             renderClarification(target.data, currentSubmissionSeq);
         } else if (target.data) {
@@ -2687,8 +2617,6 @@
             resultsSection.classList.add("hidden");
             if (clarificationSection) clarificationSection.classList.add("hidden");
             if (confirmedScope) confirmedScope.classList.add("hidden");
-            if (scopeBanner) scopeBanner.classList.add("hidden");
-            if (claimsSec) claimsSec.classList.add("hidden");
             if (claimsList) claimsList.innerHTML = "";
             if (submittedText) submittedText.textContent = "";
             if (submittedUrlRow) submittedUrlRow.classList.add("hidden");
@@ -2698,11 +2626,6 @@
             if (customReportSec) {
                 customReportSec.classList.add("hidden");
                 customReportSec.setAttribute("hidden", "");
-            }
-            const reportStudio = document.getElementById("report-studio-section");
-            if (reportStudio) {
-                reportStudio.classList.add("hidden");
-                reportStudio.setAttribute("hidden", "");
             }
         }
 
@@ -2717,11 +2640,6 @@
                 customReportSec.classList.add("hidden");
                 customReportSec.setAttribute("hidden", "");
             }
-            const reportStudio = document.getElementById("report-studio-section");
-            if (reportStudio) {
-                reportStudio.classList.add("hidden");
-                reportStudio.setAttribute("hidden", "");
-            }
         }
     }
 
@@ -2734,8 +2652,7 @@
         inputText.value = "";
         charCount.textContent = "0";
         if (sourceUrl) sourceUrl.value = "";
-        const claimInput = document.getElementById("claim-input");
-        if (claimInput) claimInput.value = "";
+
         currentSourceUrl = null;
         currentConfirmedScopeQuestion = "";
         scopeQuestionManuallyEdited = false;
@@ -2750,19 +2667,13 @@
         if (stickyInquiryBar) stickyInquiryBar.classList.add("hidden");
         const confirmedScope = document.getElementById("confirmed-scope-card");
         if (confirmedScope) confirmedScope.classList.add("hidden");
-        const scopeBanner = document.getElementById("confirmed-scope-banner");
-        if (scopeBanner) scopeBanner.classList.add("hidden");
-        const claimsSec = document.getElementById("claims-section");
-        if (claimsSec) claimsSec.classList.add("hidden");
         if (claimsList) claimsList.innerHTML = "";
         if (submittedText) submittedText.textContent = "";
         if (submittedUrlRow) submittedUrlRow.classList.add("hidden");
-        const formEl = document.getElementById("extraction-form") || document.getElementById("input-section");
+        const formEl = document.getElementById("extraction-form");
         if (formEl) formEl.classList.remove("compact-collapsed");
         const customReportSec = document.getElementById("custom-report-section");
         if (customReportSec) customReportSec.classList.add("hidden");
-        const reportStudio = document.getElementById("report-studio-section");
-        if (reportStudio) reportStudio.classList.add("hidden");
         document.querySelectorAll(".report-output-card, .report-builder-panel").forEach(el => el.classList.add("hidden"));
         const staleBanner = document.getElementById("claims-outdated-banner");
         if (staleBanner) staleBanner.remove();

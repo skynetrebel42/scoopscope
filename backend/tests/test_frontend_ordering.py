@@ -223,7 +223,13 @@ async def test_localstorage_persistence_in_browser(tmp_path: Path):
                 <div id="claims-list"></div>
             </section>
 
-            <section id="report-studio-section" class="hidden"></section>
+            <section id="custom-report-section" class="custom-report-section hidden" hidden>
+                <select id="citation-style-select" class="citation-style-select">
+                    <option value="standard">Standard</option>
+                    <option value="apa">APA</option>
+                    <option value="mla">MLA</option>
+                </select>
+            </section>
         </main>
     </div>
 
@@ -392,7 +398,7 @@ async def test_localstorage_persistence_in_browser(tmp_path: Path):
             assert(cb !== null && cb.checked === true, "Evidence bank quote checkbox state restored to checked");
 
             // Verify APA Works Cited citation style restored
-            const citationSelect = claimCard.querySelector(".citation-style-select");
+            const citationSelect = document.getElementById("citation-style-select");
             assert(citationSelect !== null, "Citation select rendered");
             assert(citationSelect.value === "apa", "Citation style restored to apa in selector");
 
@@ -458,8 +464,8 @@ async def test_localstorage_persistence_in_browser(tmp_path: Path):
             const resultsSec = document.getElementById("results-section");
             assert(resultsSec.classList.contains("hidden"), "#results-section is hidden");
 
-            const reportSec = document.getElementById("report-studio-section");
-            assert(reportSec.classList.contains("hidden"), "#report-studio-section is hidden");
+            const reportSec = document.getElementById("custom-report-section");
+            assert(reportSec.classList.contains("hidden"), "#custom-report-section is hidden");
 
             log("\\n=================================================");
             log(`ALL PERSISTENCE TESTS PASSED: ${{passed}} assertions passed.`);
@@ -782,8 +788,6 @@ async def test_phase4_full_journey_smoke_in_browser(tmp_path: Path):
             await delay(30);
 
             assert(inputTextEl.value === "", "inputText is empty after clear workspace");
-            const claimInputEl = document.getElementById("claim-input");
-            assert(claimInputEl && claimInputEl.value === "", "claimInput is empty after clear workspace");
             assert(customReportSec.classList.contains("hidden"), "#custom-report-section is hidden after clear workspace");
             const resultsSec = document.getElementById("results-section");
             assert(resultsSec.classList.contains("hidden"), "#results-section is hidden after clear workspace");
@@ -1639,6 +1643,46 @@ def test_milestone_4h_visual_fixes_in_browser(tmp_path: Path):
 
     assert "ALL MILESTONE 4H TESTS PASSED" in report_text, f"Milestone 4H test failed:\n{report_text}"
     assert "FAIL:" not in report_text, f"Milestone 4H test assertion failed:\n{report_text}"
+
+
+def test_selector_inventory():
+    """Verify selector inventory integrity between frontend/app.js and frontend/index.html (plain Python, no browser):
+    - every id used in app.js via getElementById("x") or querySelector("#x") exists exactly once in index.html OR is assigned in app.js (.id = "x");
+    - no id appears twice in index.html.
+    """
+    from collections import Counter
+
+    project_root = Path(__file__).resolve().parent.parent.parent
+    index_html_path = project_root / "frontend" / "index.html"
+    app_js_path = project_root / "frontend" / "app.js"
+
+    assert index_html_path.is_file(), f"Missing index.html at {index_html_path}"
+    assert app_js_path.is_file(), f"Missing app.js at {app_js_path}"
+
+    index_html = index_html_path.read_text(encoding="utf-8")
+    app_js = app_js_path.read_text(encoding="utf-8")
+
+    # 1. No id appears twice in index.html
+    html_ids = re.findall(r'\bid=["\']([a-zA-Z0-9_\-]+)["\']', index_html)
+    id_counts = Counter(html_ids)
+    duplicates = [id_name for id_name, count in id_counts.items() if count > 1]
+    assert not duplicates, f"Duplicate IDs found in index.html: {duplicates}"
+
+    # 2. Every id used in app.js via getElementById("x") or querySelector("#x")
+    # exists exactly once in index.html OR is assigned in app.js (.id = "x")
+    get_elem_ids = set(re.findall(r'getElementById\(["\']([a-zA-Z0-9_\-]+)["\']\)', app_js))
+    query_sel_ids = set()
+    for arg in re.findall(r'querySelector(?:All)?\(["\']([^"\']+)["\']\)', app_js):
+        for id_match in re.findall(r'#([a-zA-Z0-9_\-]+)', arg):
+            query_sel_ids.add(id_match)
+
+    used_ids = get_elem_ids | query_sel_ids
+    assigned_ids = set(re.findall(r'\.id\s*=\s*["\']([a-zA-Z0-9_\-]+)["\']', app_js))
+
+    html_id_set = set(html_ids)
+    missing_ids = sorted([i for i in used_ids if i not in html_id_set and i not in assigned_ids])
+    assert not missing_ids, f"IDs used in app.js but not defined in index.html or assigned in app.js: {missing_ids}"
+
 
 
 

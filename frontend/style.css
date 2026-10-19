@@ -58,9 +58,9 @@
     padding: 0;
 }
 
-/* --- Global Visibility Utilities (Milestone 4H) --- */
-.hidden,
-[hidden] {
+/* --- Global Visibility Utilities ---
+   Show/hide only with the .hidden class */
+.hidden {
     display: none !important;
 }
 
@@ -276,9 +276,6 @@ body::before {
     animation: slideDown 0.25s ease-out;
 }
 
-.error-banner.hidden {
-    display: none;
-}
 
 @keyframes slideDown {
     from {
@@ -366,9 +363,6 @@ body::before {
     animation: fadeIn 0.3s ease-out;
 }
 
-.results-section.hidden {
-    display: none;
-}
 
 @keyframes fadeIn {
     from { opacity: 0; }
@@ -432,9 +426,6 @@ body::before {
     gap: 0.4rem;
 }
 
-.submitted-url-row.hidden {
-    display: none;
-}
 
 .submitted-url {
     color: var(--accent);
@@ -876,9 +867,6 @@ body::before {
     animation: slideDown 0.3s ease-out;
 }
 
-.clarification-card.hidden {
-    display: none;
-}
 
 .clarification-title-row {
     display: flex;
@@ -1037,9 +1025,6 @@ body::before {
     gap: 0.9rem;
 }
 
-.confirmed-scope-card.hidden {
-    display: none;
-}
 
 .scope-header-row {
     display: flex;
@@ -1131,9 +1116,6 @@ body::before {
     padding: 0.75rem 1rem;
 }
 
-.unresolved-scope-container.hidden {
-    display: none;
-}
 
 .unresolved-title {
     font-size: 0.75rem;
@@ -1170,9 +1152,6 @@ body::before {
     font-size: 0.84rem;
 }
 
-.limitation-banner.hidden {
-    display: none;
-}
 
 .limitation-icon {
     font-size: 1rem;
@@ -1207,9 +1186,6 @@ body::before {
     transition: all 0.25s ease;
 }
 
-.sticky-inquiry-bar.hidden {
-    display: none;
-}
 
 .sticky-inquiry-header {
     display: flex;
@@ -1281,9 +1257,6 @@ body::before {
     animation: fadeIn 0.2s ease-out;
 }
 
-.loading-progress-banner.hidden {
-    display: none;
-}
 
 .progress-bar-track {
     width: 100%;
@@ -1696,9 +1669,6 @@ body::before {
     animation: fadeIn 0.2s ease-out;
 }
 
-.full-context-container.hidden {
-    display: none;
-}
 
 /* --- Explore Further Card (Actionable Chips & New Inquiry) --- */
 .explore-further-card {
@@ -1833,9 +1803,6 @@ body::before {
     margin-bottom: 0.85rem;
 }
 
-.session-tabs-bar.hidden {
-    display: none !important;
-}
 
 .session-tabs-list {
     display: flex;
@@ -2187,9 +2154,6 @@ body::before {
     animation: fadeIn 0.25s ease-out;
 }
 
-.report-output-card.hidden {
-    display: none !important;
-}
 
 .report-output-actions {
     display: flex;
@@ -2390,7 +2354,4 @@ body::before {
     border-color: rgba(255, 255, 255, 0.2);
 }
 
-.btn-toggle-evidence.hidden {
-    display: none !important;
-}
 
