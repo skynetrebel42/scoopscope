@@ -2294,3 +2294,64 @@ body::before {
         grid-template-columns: 1fr;
     }
 }
+
+/* --- Milestone 4G: Single Collapsible Report Studio & Compact Layout --- */
+.input-card.compact-collapsed {
+    display: none;
+}
+
+.btn-toggle-report-studio {
+    background: rgba(62, 207, 180, 0.12);
+    color: #3ecfb4;
+    border: 1px solid rgba(62, 207, 180, 0.35);
+    border-radius: var(--radius-sm, 6px);
+    padding: 0.35rem 0.8rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    font-family: inherit;
+    margin-left: auto;
+}
+
+.btn-toggle-report-studio:hover {
+    background: rgba(62, 207, 180, 0.22);
+    border-color: #3ecfb4;
+    color: #ffffff;
+}
+
+.btn-toggle-report-studio:focus-visible {
+    outline: 2px solid #3ecfb4;
+    outline-offset: 2px;
+}
+
+.report-studio-body {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.report-content-body ol {
+    margin: 0.75rem 0 0.75rem 1.75rem;
+    padding-left: 0.5rem;
+    list-style-type: decimal;
+}
+
+.report-content-body ol li {
+    margin-bottom: 0.5rem;
+    padding-left: 0.25rem;
+    line-height: 1.6;
+}
+
+.report-content-body ul {
+    margin: 0.75rem 0 0.75rem 1.75rem;
+    padding-left: 0.5rem;
+    list-style-type: disc;
+}
+
+.report-content-body ul li {
+    margin-bottom: 0.5rem;
+    padding-left: 0.25rem;
+    line-height: 1.6;
+}
+

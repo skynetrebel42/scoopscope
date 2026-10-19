@@ -832,3 +832,485 @@ async def test_phase4_full_journey_smoke_in_browser(tmp_path: Path):
     assert "ALL PHASE 4 SMOKE TESTS PASSED" in report_text, f"Phase 4 smoke tests failed:\n{report_text}"
     assert "FAIL:" not in report_text, f"Phase 4 smoke test assertion failed:\n{report_text}"
 
+
+def test_inflight_search_isolation_across_session_tabs(tmp_path: Path):
+    """
+    Milestone 4G (Decision 017):
+    Verify that an in-flight async search/clarify request started in Session 1
+    does NOT bleed into Session 2 when the user switches tabs before the response resolves.
+    When the response finishes:
+    - Session 2's active DOM must remain completely clean/blank (zero bleed).
+    - Session 1 must store the completed data in memory and localStorage.
+    - Switching back to Session 1 displays Session 1's completed results cleanly.
+    """
+    browser = _find_browser()
+    if not browser:
+        pytest.skip("Neither Chrome nor Edge found on host.")
+
+    project_root = Path(__file__).resolve().parent.parent.parent
+    index_html_path = project_root / "frontend" / "index.html"
+    index_html_content = index_html_path.read_text(encoding="utf-8")
+
+    app_js_uri = (project_root / "frontend" / "app.js").resolve().as_uri()
+    style_css_uri = (project_root / "frontend" / "style.css").resolve().as_uri()
+
+    body_match = re.search(r"<body[^>]*>(.*?)</body>", index_html_content, re.DOTALL)
+    assert body_match is not None, "Could not extract body content from index.html"
+    body_inner = body_match.group(1)
+    body_inner = re.sub(r'<script\s+src=["\']app\.js["\'][^>]*></script>', '', body_inner)
+
+    runner_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Milestone 4G Tab Isolation Test</title>
+    <link rel="stylesheet" href="{style_css_uri}">
+    <style>
+        #test-report {{
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #111520;
+            border: 1px solid #3ecfb4;
+            border-radius: 8px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }}
+        .test-pass {{ color: #3ecfb4; }}
+        .test-fail {{ color: #eb5757; }}
+    </style>
+</head>
+<body>
+    <div id="test-report">Initializing Tab Isolation test...</div>
+
+    {body_inner}
+
+    <script src="{app_js_uri}"></script>
+
+    <script>
+    (async function() {{
+        const report = document.getElementById("test-report");
+        const logs = [];
+        let passed = 0;
+
+        function log(msg) {{
+            logs.push(msg);
+            report.textContent = logs.join("\\n");
+        }}
+
+        function assert(condition, message) {{
+            if (!condition) {{
+                throw new Error("Assertion failed: " + message);
+            }}
+            passed++;
+            log("  [PASS " + passed + "] " + message);
+        }}
+
+        function delay(ms) {{
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }}
+
+        try {{
+            const scope = window.__ScoopScope;
+            assert(scope !== undefined, "__ScoopScope is exposed");
+
+            // Mock fetch to simulate delayed server response (150ms delay)
+            const origFetch = window.fetch;
+            window.fetch = async function(url, options) {{
+                if (url.includes("/api/clarify")) {{
+                    await delay(150);
+                    return {{
+                        ok: true,
+                        status: 200,
+                        json: async () => ({{
+                            clarification_needed: false,
+                            submission_id: "sub_delay_1",
+                            submitted_text: "Session 1 delayed statement",
+                            confirmed_scope_question: "What did Session 1 assert?",
+                            claims: [
+                                {{
+                                    id: "claim_sess1_del",
+                                    normalized_assertion: "Session 1 claim resolved in background.",
+                                    quote: "Session 1 delayed statement",
+                                    confidence: 0.95
+                                }}
+                            ]
+                        }})
+                    }};
+                }}
+                return origFetch(url, options);
+            }};
+
+            // 1. Session 1 is active. Submit an inquiry.
+            log("\\n--- 1. Submit Inquiry in Session 1 with Delayed Response ---");
+            const inputTextEl = document.getElementById("input-text");
+            inputTextEl.value = "Session 1 delayed statement";
+            inputTextEl.dispatchEvent(new Event("input", {{ bubbles: true }}));
+
+            const form = document.getElementById("extraction-form");
+            form.dispatchEvent(new Event("submit", {{ bubbles: true, cancelable: true }}));
+
+            // 2. Switch to Session 2 while request is in flight (after 30ms)
+            await delay(30);
+            log("\\n--- 2. Switch to Session 2 (+ New) While Request In Flight ---");
+            const btnNewSess = document.getElementById("btn-new-session");
+            btnNewSess.click();
+            await delay(30);
+
+            const activeSessId = scope.activeSessionId;
+            const tabs = document.querySelectorAll(".session-tab-btn");
+            assert(tabs.length === 2, "2 session tabs exist");
+            assert(tabs[1].classList.contains("active"), "Session 2 tab is currently active");
+            assert(inputTextEl.value === "", "Session 2 input is empty");
+            const resultsSec = document.getElementById("results-section");
+            assert(resultsSec.classList.contains("hidden"), "Session 2 results-section is hidden while Session 1 is in-flight");
+
+            // 3. Wait for Session 1's mock fetch to complete (200ms)
+            log("\\n--- 3. Await Background Completion of Session 1 Request ---");
+            await delay(200);
+
+            // Verify Session 2 has NOT been corrupted
+            assert(resultsSec.classList.contains("hidden"), "Session 2 results-section is STILL hidden (zero bleed from Session 1)");
+            const claimsList = document.getElementById("claims-list");
+            assert(claimsList.children.length === 0, "Session 2 claims-list is empty (zero bleed from Session 1)");
+            assert(inputTextEl.value === "", "Session 2 inputText is still empty (zero bleed from Session 1)");
+
+            // 4. Switch back to Session 1 and verify Session 1's results appear
+            log("\\n--- 4. Switch Back to Session 1 to Verify Results Persisted ---");
+            tabs[0].click(); // Click Session 1 tab
+            await delay(50);
+
+            assert(!resultsSec.classList.contains("hidden"), "Session 1 results-section is now visible");
+            const card = document.getElementById("claim-card-claim_sess1_del");
+            assert(card !== null, "Session 1 claim card rendered cleanly in DOM upon tab switch");
+            assert(inputTextEl.value.includes("Session 1 delayed statement"), "Session 1 inputText restored");
+
+            // Switch back to Session 2 again and verify clean state
+            log("\\n--- 5. Switch Back to Session 2 to Confirm Idempotence ---");
+            const updatedTabs = document.querySelectorAll(".session-tab-btn");
+            updatedTabs[1].click();
+            await delay(50);
+
+            assert(resultsSec.classList.contains("hidden"), "Session 2 results-section is hidden when switched back");
+            assert(inputTextEl.value === "", "Session 2 input remains empty");
+
+            log("\\nALL TAB ISOLATION TESTS PASSED (" + passed + " assertions)");
+        }} catch (err) {{
+            report.className = "test-fail";
+            report.textContent = "FAIL: " + err.message + "\\n" + (err.stack || "");
+        }}
+    }})();
+    </script>
+</body>
+</html>"""
+
+    runner_file = tmp_path / "tab_isolation_runner.html"
+    runner_file.write_text(runner_html, encoding="utf-8")
+
+    cmd = [
+        browser,
+        "--headless=new",
+        "--disable-gpu",
+        "--allow-file-access-from-files",
+        "--virtual-time-budget=6000",
+        "--dump-dom",
+        str(runner_file),
+    ]
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+    )
+
+    stdout = result.stdout
+    match = re.search(r'<div id="test-report"[^>]*>(.*?)</div>', stdout, re.DOTALL)
+    assert match is not None, f"Could not find #test-report in DOM output: {stdout[:500]}"
+    report_text = match.group(1)
+    print("\n--- TAB ISOLATION TEST REPORT ---")
+    print(report_text.encode("ascii", errors="replace").decode("ascii"))
+    print("--- END TAB ISOLATION TEST REPORT ---\n")
+
+    assert "ALL TAB ISOLATION TESTS PASSED" in report_text, f"Tab isolation tests failed:\n{report_text}"
+    assert "FAIL:" not in report_text, f"Tab isolation test assertion failed:\n{report_text}"
+
+
+def test_single_collapsible_report_studio_and_clean_empty_state(tmp_path: Path):
+    """
+    Milestone 4G (Decision 017):
+    Verify:
+    1. On initial load and on a fresh tab (+ New) with 0 quotes / 0 results,
+       both #report-studio-section and #custom-report-section are hidden,
+       and #confirmed-scope-card / #confirmed-scope-banner are hidden.
+    2. Exactly ONE visible Report Studio container exists in the DOM when results load.
+    3. The Report Studio options body starts collapsed until toggled by #btn-toggle-report-studio.
+    4. Works Cited deduplicates identical source URLs (2 quotes from same URL appear as 1 citation).
+    5. Ordered list items render sequential numbering (1., 2.) rather than repeating 1. on every item.
+    """
+    browser = _find_browser()
+    if not browser:
+        pytest.skip("Neither Chrome nor Edge found on host.")
+
+    project_root = Path(__file__).resolve().parent.parent.parent
+    index_html_path = project_root / "frontend" / "index.html"
+    index_html_content = index_html_path.read_text(encoding="utf-8")
+
+    app_js_uri = (project_root / "frontend" / "app.js").resolve().as_uri()
+    style_css_uri = (project_root / "frontend" / "style.css").resolve().as_uri()
+
+    body_match = re.search(r"<body[^>]*>(.*?)</body>", index_html_content, re.DOTALL)
+    assert body_match is not None, "Could not extract body content from index.html"
+    body_inner = body_match.group(1)
+    body_inner = re.sub(r'<script\s+src=["\']app\.js["\'][^>]*></script>', '', body_inner)
+
+    runner_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Milestone 4G Collapsible Report Studio Test</title>
+    <link rel="stylesheet" href="{style_css_uri}">
+    <style>
+        #test-report {{
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #111520;
+            border: 1px solid #3ecfb4;
+            border-radius: 8px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }}
+        .test-pass {{ color: #3ecfb4; }}
+        .test-fail {{ color: #eb5757; }}
+    </style>
+</head>
+<body>
+    <div id="test-report">Initializing Collapsible Report Studio test...</div>
+
+    {body_inner}
+
+    <script src="{app_js_uri}"></script>
+
+    <script>
+    (async function() {{
+        const report = document.getElementById("test-report");
+        const logs = [];
+        let passed = 0;
+
+        function log(msg) {{
+            logs.push(msg);
+            report.textContent = logs.join("\\n");
+        }}
+
+        function assert(condition, message) {{
+            if (!condition) {{
+                throw new Error("Assertion failed: " + message);
+            }}
+            passed++;
+            log("  [PASS " + passed + "] " + message);
+        }}
+
+        function delay(ms) {{
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }}
+
+        try {{
+            const scope = window.__ScoopScope;
+            assert(scope !== undefined, "__ScoopScope is exposed");
+
+            // 1. Initial Load Empty State Check
+            log("\\n--- 1. Initial Clean Empty State Check ---");
+            const customReportSec = document.getElementById("custom-report-section");
+            const reportStudioSec = document.getElementById("report-studio-section");
+            assert(customReportSec && customReportSec.classList.contains("hidden"), "#custom-report-section is hidden on initial load");
+            if (reportStudioSec) {{
+                assert(reportStudioSec.classList.contains("hidden"), "#report-studio-section is hidden on initial load");
+            }}
+
+            const confirmedScope = document.getElementById("confirmed-scope-card");
+            assert(confirmedScope && confirmedScope.classList.contains("hidden"), "#confirmed-scope-card is hidden on initial load");
+            const resultsSec = document.getElementById("results-section");
+            assert(resultsSec && resultsSec.classList.contains("hidden"), "#results-section is hidden on initial load");
+
+            // 2. Open Fresh Session Tab (+ New) -> Empty State Preserved
+            log("\\n--- 2. Fresh Session Tab (+ New) Empty State ---");
+            const btnNewSess = document.getElementById("btn-new-session");
+            btnNewSess.click();
+            await delay(30);
+
+            assert(customReportSec.classList.contains("hidden"), "#custom-report-section is hidden on fresh tab");
+            if (reportStudioSec) {{
+                assert(reportStudioSec.classList.contains("hidden"), "#report-studio-section is hidden on fresh tab");
+            }}
+            assert(resultsSec.classList.contains("hidden"), "#results-section is hidden on fresh tab");
+
+            // 3. Render Claims & Research Results with 2 quotes from SAME URL + 1 from another
+            log("\\n--- 3. Render Research Results with Multi-Quote Same Source ---");
+            const mockExtract = {{
+                claims: [
+                    {{
+                        id: "claim_multi_1",
+                        normalized_assertion: "City adopted zero-carbon targets.",
+                        quote: "City adopted zero-carbon targets.",
+                        confidence: 0.95
+                    }}
+                ]
+            }};
+            scope.renderResults(mockExtract, scope.currentSeq);
+
+            const mockResearch = {{
+                claim_id: "claim_multi_1",
+                status_message: "Completed in 0.2s",
+                completed_in_seconds: 0.2,
+                retrieved_sources: [
+                    {{
+                        source_id: "src_1",
+                        initial_url: "https://santamonica.gov/climate/plan",
+                        final_url: "https://santamonica.gov/climate/plan",
+                        domain: "santamonica.gov",
+                        title: "Santa Monica Climate Plan",
+                        publication_date: "2024-06-15",
+                        jurisdiction_tag: "LA Local City Official"
+                    }},
+                    {{
+                        source_id: "src_2",
+                        initial_url: "https://lacounty.gov/sustainability",
+                        final_url: "https://lacounty.gov/sustainability",
+                        domain: "lacounty.gov",
+                        title: "LA County Sustainability Plan",
+                        publication_date: "2024-05-10",
+                        jurisdiction_tag: "LA County Official"
+                    }}
+                ],
+                candidate_passages: [
+                    {{
+                        passage_id: "psg_1a",
+                        source_id: "src_1",
+                        source_url: "https://santamonica.gov/climate/plan",
+                        source_title: "Santa Monica Climate Plan",
+                        exact_passage: "Passage 1 from Santa Monica City Council.",
+                        publication_date: "2024-06-15",
+                        jurisdiction_tag: "LA Local City Official"
+                    }},
+                    {{
+                        passage_id: "psg_1b",
+                        source_id: "src_1",
+                        source_url: "https://santamonica.gov/climate/plan",
+                        source_title: "Santa Monica Climate Plan",
+                        exact_passage: "Passage 2 from the same Santa Monica page.",
+                        publication_date: "2024-06-15",
+                        jurisdiction_tag: "LA Local City Official"
+                    }},
+                    {{
+                        passage_id: "psg_2",
+                        source_id: "src_2",
+                        source_url: "https://lacounty.gov/sustainability",
+                        source_title: "LA County Sustainability Plan",
+                        exact_passage: "Passage 3 from County of Los Angeles.",
+                        publication_date: "2024-05-10",
+                        jurisdiction_tag: "LA County Official"
+                    }}
+                ]
+            }};
+
+            const card = document.getElementById("claim-card-claim_multi_1");
+            const resContainer = card.querySelector(".claim-research-container");
+            const resBtn = card.querySelector(".btn-research");
+            scope.claimResearchTabs["claim_multi_1"] = [{{
+                id: "run_multi_1",
+                title: "Tab 1: Initial Inquiry",
+                query: mockExtract.claims[0].normalized_assertion,
+                data: mockResearch,
+                timestamp: Date.now()
+            }}];
+            scope.activeClaimTabId["claim_multi_1"] = "run_multi_1";
+            resContainer.classList.remove("hidden");
+            scope.renderClaimResearchTabsWorkspace(resContainer, mockExtract.claims[0], resBtn, card);
+            await delay(30);
+
+            // 4. Verify exactly ONE visible Report Studio container in the DOM
+            log("\\n--- 4. Verify Single Visible Report Studio in DOM ---");
+            const visibleStudios = Array.from(document.querySelectorAll(".custom-report-section, #custom-report-section, #report-studio-section, .report-builder-panel"))
+                .filter(el => !el.classList.contains("hidden") && el.offsetParent !== null);
+            // Must have exactly 1 visible top-level report studio container
+            const topLevelReportContainers = Array.from(document.querySelectorAll("#custom-report-section, #report-studio-section"))
+                .filter(el => !el.classList.contains("hidden"));
+            assert(topLevelReportContainers.length === 1, "Exactly ONE top-level Report Studio section is visible in DOM");
+
+            // 5. Verify Collapsible Body Starts Collapsed
+            log("\\n--- 5. Verify Report Studio Controls Start Collapsed ---");
+            const toggleBtn = document.getElementById("btn-toggle-report-studio") || document.querySelector(".btn-toggle-report-studio");
+            assert(toggleBtn !== null, "Collapsible toggle button #btn-toggle-report-studio exists");
+            const collapsibleBody = document.getElementById("report-studio-collapsible-body") || document.querySelector(".report-studio-body");
+            assert(collapsibleBody !== null, "Collapsible body #report-studio-collapsible-body exists");
+            assert(collapsibleBody.classList.contains("hidden"), "Report studio controls start collapsed (.hidden)");
+
+            // Click toggle button to expand
+            toggleBtn.click();
+            await delay(30);
+            assert(!collapsibleBody.classList.contains("hidden"), "Report studio controls expand when toggle clicked");
+
+            // 6. Verify Works Cited Deduplicates Identical Source URLs
+            log("\\n--- 6. Verify Works Cited URL Deduplication & Sequential Numbering ---");
+            const reportBody = customReportSec.querySelector(".report-content-body");
+            assert(reportBody !== null, "Report content body exists");
+            const reportText = reportBody.textContent;
+
+            // In Works Cited, santamonica.gov should appear once in the Works Cited list
+            const worksCitedIdx = reportText.indexOf("Works Cited");
+            assert(worksCitedIdx !== -1, "Works Cited section exists in report body");
+            const worksCitedSectionText = reportText.slice(worksCitedIdx);
+
+            const smMatches = (worksCitedSectionText.match(/santamonica\\.gov/g) || []).length;
+            assert(smMatches === 1, "santamonica.gov appears exactly ONCE in Works Cited (deduplicated across 2 quotes)");
+
+            // 7. Verify Sequential List Numbering in Markdown
+            log("\\n--- 7. Verify Sequential List Numbering in HTML Rendering ---");
+            const sampleListMd = "1. First point\\n\\n2. Second point\\n\\n3. Third point";
+            const renderedHtml = scope.renderMarkdown ? scope.renderMarkdown(sampleListMd) : window.renderMarkdown(sampleListMd);
+            assert(!renderedHtml.includes("</ol><ol>"), "Consecutive numbered list items with blank lines do not split into separate <ol> tags");
+            assert(renderedHtml.includes("<ol") && renderedHtml.includes("<li>First point</li>"), "Rendered HTML contains valid ordered list");
+
+            log("\\nALL SINGLE COLLAPSIBLE REPORT STUDIO TESTS PASSED (" + passed + " assertions)");
+        }} catch (err) {{
+            report.className = "test-fail";
+            report.textContent = "FAIL: " + err.message + "\\n" + (err.stack || "");
+        }}
+    }})();
+    </script>
+</body>
+</html>"""
+
+    runner_file = tmp_path / "collapsible_report_studio_runner.html"
+    runner_file.write_text(runner_html, encoding="utf-8")
+
+    cmd = [
+        browser,
+        "--headless=new",
+        "--disable-gpu",
+        "--allow-file-access-from-files",
+        "--virtual-time-budget=6000",
+        "--dump-dom",
+        str(runner_file),
+    ]
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+    )
+
+    stdout = result.stdout
+    match = re.search(r'<div id="test-report"[^>]*>(.*?)</div>', stdout, re.DOTALL)
+    assert match is not None, f"Could not find #test-report in DOM output: {stdout[:500]}"
+    report_text = match.group(1)
+    print("\n--- COLLAPSIBLE REPORT STUDIO TEST REPORT ---")
+    print(report_text.encode("ascii", errors="replace").decode("ascii"))
+    print("--- END COLLAPSIBLE REPORT STUDIO TEST REPORT ---\n")
+
+    assert "ALL SINGLE COLLAPSIBLE REPORT STUDIO TESTS PASSED" in report_text, f"Report studio tests failed:\n{report_text}"
+    assert "FAIL:" not in report_text, f"Report studio test assertion failed:\n{report_text}"
+
+

@@ -228,12 +228,30 @@
 
     if (btnStickyEdit) {
         btnStickyEdit.addEventListener("click", () => {
+            const formEl = document.getElementById("extraction-form") || document.getElementById("input-section");
+            if (formEl) {
+                formEl.classList.remove("compact-collapsed");
+            }
             if (scopeQuestionInput && confirmedScopeCard && !confirmedScopeCard.classList.contains("hidden")) {
                 confirmedScopeCard.scrollIntoView({ behavior: "smooth", block: "center" });
                 scopeQuestionInput.focus();
             } else if (clarificationSection && !clarificationSection.classList.contains("hidden")) {
                 clarificationSection.scrollIntoView({ behavior: "smooth", block: "start" });
             } else if (inputText) {
+                inputText.scrollIntoView({ behavior: "smooth", block: "center" });
+                inputText.focus();
+            }
+        });
+    }
+
+    const btnEditInquiry = document.getElementById("btn-edit-inquiry");
+    if (btnEditInquiry) {
+        btnEditInquiry.addEventListener("click", () => {
+            const formEl = document.getElementById("extraction-form") || document.getElementById("input-section");
+            if (formEl) {
+                formEl.classList.remove("compact-collapsed");
+            }
+            if (inputText) {
                 inputText.scrollIntoView({ behavior: "smooth", block: "center" });
                 inputText.focus();
             }
@@ -352,18 +370,25 @@
     async function executeClarificationChoice(choiceText, freeText, explicitBroad) {
         if (!currentClarificationData) return;
 
+        const originSessionId = activeSessionId;
+        const originSession = originSessionId ? sessionInquiries.find(s => s.id === originSessionId) : null;
+
         hideError();
         const seq = ++currentSubmissionSeq;
         activeResearchSeq++;
         activeResearchClaimId = null;
 
         // Record exchange
-        clarificationExchanges.push({
+        const exch = {
             round_index: currentClarificationData.round_index,
             question: currentClarificationData.question || "Which aspect would you like to investigate?",
             selected_choice: choiceText || null,
             free_text: freeText || null,
-        });
+        };
+        clarificationExchanges.push(exch);
+        if (originSession) {
+            originSession.clarificationExchanges = clarificationExchanges;
+        }
 
         setClarificationLoading(true);
         showLoadingProgress("Updating inquiry scope…");
@@ -371,7 +396,7 @@
         const nextRound = currentClarificationData.round_index + 1;
         const body = {
             text: inputText.value,
-            source_url: sourceUrl.value.trim() || null,
+            source_url: sourceUrl ? (sourceUrl.value.trim() || null) : null,
             round_index: nextRound,
             exchanges: clarificationExchanges,
             explicit_broad: Boolean(explicitBroad),
@@ -391,33 +416,65 @@
                 data = await res.json();
             } catch (parseErr) {
                 if (seq !== currentSubmissionSeq) return;
-                showError("Response error", "Server returned an unparseable response.");
+                const hasSwitched = Boolean(originSessionId && activeSessionId && activeSessionId !== originSessionId);
+                if (!hasSwitched) {
+                    showError("Response error", "Server returned an unparseable response.");
+                }
                 return;
             }
 
             if (seq !== currentSubmissionSeq) return;
 
             if (!res.ok) {
-                showError(
-                    data.error || `Error ${res.status}`,
-                    data.detail || "Clarification failed."
-                );
+                const hasSwitched = Boolean(originSessionId && activeSessionId && activeSessionId !== originSessionId);
+                if (!hasSwitched) {
+                    showError(
+                        data.error || `Error ${res.status}`,
+                        data.detail || "Clarification failed."
+                    );
+                }
                 return;
             }
 
-            if (data.clarification_needed) {
-                renderClarification(data, seq);
-            } else {
-                if (clarificationSection) {
-                    clarificationSection.classList.add("hidden");
+            if (originSession) {
+                if (data.clarification_needed) {
+                    originSession.data = data;
+                    originSession.isClarification = true;
+                    originSession.clarificationExchanges = clarificationExchanges;
+                } else {
+                    originSession.data = data;
+                    originSession.isClarification = false;
+                    originSession.scopeQuestion = data.confirmed_scope_question || data.interpreted_question || (data.claims && data.claims[0] && data.claims[0].normalized_assertion) || currentConfirmedScopeQuestion;
+                    originSession.claims = data.claims || [];
                 }
-                renderResults(data, seq);
+                originSession.isClarifying = false;
+            }
+
+            const hasSwitched = Boolean(originSessionId && activeSessionId && activeSessionId !== originSessionId);
+            if (!hasSwitched) {
+                if (data.clarification_needed) {
+                    renderClarification(data, seq);
+                } else {
+                    if (clarificationSection) {
+                        clarificationSection.classList.add("hidden");
+                    }
+                    renderResults(data, seq);
+                }
+                renderSessionTabs();
+                saveWorkspaceToStorage();
+            } else {
+                renderSessionTabs();
+                saveWorkspaceToStorage();
             }
         } catch (err) {
             if (seq !== currentSubmissionSeq) return;
-            showError("Network error", "Could not reach the server during clarification.");
+            const hasSwitched = Boolean(originSessionId && activeSessionId && activeSessionId !== originSessionId);
+            if (!hasSwitched) {
+                showError("Network error", "Could not reach the server during clarification.");
+            }
         } finally {
-            if (seq === currentSubmissionSeq) {
+            const hasSwitched = Boolean(originSessionId && activeSessionId && activeSessionId !== originSessionId);
+            if (!hasSwitched && seq === currentSubmissionSeq) {
                 setClarificationLoading(false);
                 hideLoadingProgress();
             }
@@ -643,13 +700,19 @@
             return;
         }
 
+        const originSessionId = activeSessionId;
+        const originSession = sessionInquiries.find(s => s.id === originSessionId);
+        if (!originSession) return;
+
         hideError();
         const researchSeq = ++activeResearchSeq;
         activeResearchClaimId = claim.id;
 
-        const container = card.querySelector(`#research-container-${claim.id}`);
-        container.innerHTML = "";
-        container.classList.remove("hidden");
+        const container = card.querySelector(`#research-container-${claim.id}`) || card.querySelector(".claim-research-container");
+        if (container) {
+            container.innerHTML = "";
+            container.classList.remove("hidden");
+        }
 
         // Button loading state
         button.disabled = true;
@@ -664,7 +727,9 @@
         loadText.textContent = "Searching web and safely retrieving candidate pages (up to 90s)…";
         loadingIndicator.appendChild(spinner);
         loadingIndicator.appendChild(loadText);
-        container.appendChild(loadingIndicator);
+        if (container) {
+            container.appendChild(loadingIndicator);
+        }
 
         showLoadingProgress("Searching sources, extracting verbatim quotes, and analyzing how they fit your inquiry…");
 
@@ -713,7 +778,9 @@
                 data = await res.json();
             } catch (_) {
                 if (researchSeq !== activeResearchSeq) return;
-                showResearchError(container, "Response error", "Server returned an unparseable response.");
+                if (activeSessionId === originSessionId && container) {
+                    showResearchError(container, "Response error", "Server returned an unparseable response.");
+                }
                 return;
             }
 
@@ -722,17 +789,22 @@
             }
 
             if (!res.ok) {
-                const title = data.error || `Error ${res.status}`;
-                const detail = data.detail || "Unable to gather sources for this claim.";
-                showResearchError(container, title, detail);
+                if (activeSessionId === originSessionId && container) {
+                    const title = data.error || `Error ${res.status}`;
+                    const detail = data.detail || "Unable to gather sources for this claim.";
+                    showResearchError(container, title, detail);
+                }
                 return;
             }
 
-            // Milestone 3B Multi-Tab: Append new run rather than wiping previous runs
-            if (!claimResearchTabs[claim.id]) {
-                claimResearchTabs[claim.id] = [];
+            // Milestone 3B Multi-Tab: Append new run strictly to originSession
+            if (!originSession.claimResearchTabs) {
+                originSession.claimResearchTabs = {};
             }
-            const runs = claimResearchTabs[claim.id];
+            if (!originSession.claimResearchTabs[claim.id]) {
+                originSession.claimResearchTabs[claim.id] = [];
+            }
+            const runs = originSession.claimResearchTabs[claim.id];
             let tabTitle = "";
             if (runs.length === 0) {
                 tabTitle = "Tab 1: Initial Inquiry";
@@ -752,13 +824,20 @@
                 timestamp: Date.now(),
             };
             runs.push(newRun);
-            activeClaimTabId[claim.id] = newRun.id;
 
-            // Auto-select substantive candidate quotes in selectedQuotes
+            if (!originSession.activeClaimTabId) {
+                originSession.activeClaimTabId = {};
+            }
+            originSession.activeClaimTabId[claim.id] = newRun.id;
+
+            if (!originSession.selectedQuotes) {
+                originSession.selectedQuotes = {};
+            }
+            // Auto-select substantive candidate quotes in originSession
             (data.candidate_passages || []).forEach(p => {
                 const qKey = getQuoteKey(claim.id, p);
-                if (selectedQuotes[qKey] === undefined) {
-                    selectedQuotes[qKey] = {
+                if (originSession.selectedQuotes[qKey] === undefined) {
+                    originSession.selectedQuotes[qKey] = {
                         checked: true,
                         passage: p,
                         claimId: claim.id,
@@ -766,30 +845,48 @@
                 }
             });
 
-            updateActiveSessionState();
-            saveWorkspaceToStorage();
-            renderClaimResearchTabsWorkspace(container, claim, button, card);
+            if (activeSessionId === originSessionId) {
+                claimResearchTabs = originSession.claimResearchTabs;
+                activeClaimTabId = originSession.activeClaimTabId;
+                selectedQuotes = originSession.selectedQuotes;
+                updateActiveSessionState();
+                saveWorkspaceToStorage();
+                if (container && card) {
+                    renderClaimResearchTabsWorkspace(container, claim, button, card);
+                }
+                const formEl = document.getElementById("extraction-form") || document.getElementById("input-section");
+                if (formEl) formEl.classList.add("compact-collapsed");
+            } else {
+                saveWorkspaceToStorage();
+                renderSessionTabs();
+            }
         } catch (err) {
             if (researchSeq !== activeResearchSeq) return;
-            showResearchError(container, "Network error", "Could not complete research request. Is the server running?");
+            if (activeSessionId === originSessionId && container) {
+                showResearchError(container, "Network error", "Could not complete research request. Is the server running?");
+            }
         } finally {
-            hideLoadingProgress();
-            if (researchSeq === activeResearchSeq && activeResearchClaimId === claim.id) {
-                activeResearchClaimId = null;
-            }
-            const loading = container.querySelector(".research-loading-state");
-            if (loading) {
-                loading.remove();
-            }
-            // Restore button state: disabled with title if snapshot is outdated, otherwise enabled
-            if (document.getElementById("claims-outdated-banner")) {
-                button.disabled = true;
-                button.textContent = "Find sources";
-                button.title = "Input has changed. Submit to re-extract claims before researching.";
-            } else {
-                button.disabled = false;
-                button.textContent = "Find sources";
-                button.removeAttribute("title");
+            if (activeSessionId === originSessionId) {
+                hideLoadingProgress();
+                if (researchSeq === activeResearchSeq && activeResearchClaimId === claim.id) {
+                    activeResearchClaimId = null;
+                }
+                if (container) {
+                    const loading = container.querySelector(".research-loading-state");
+                    if (loading) {
+                        loading.remove();
+                    }
+                }
+                // Restore button state: disabled with title if snapshot is outdated, otherwise enabled
+                if (document.getElementById("claims-outdated-banner")) {
+                    button.disabled = true;
+                    button.textContent = "Find sources";
+                    button.title = "Input has changed. Submit to re-extract claims before researching.";
+                } else {
+                    button.disabled = false;
+                    button.textContent = "Find sources";
+                    button.removeAttribute("title");
+                }
             }
         }
     }
@@ -884,9 +981,12 @@
                 continue;
             }
             if (/^\d+\.\s+/.test(line)) {
+                const match = line.match(/^(\d+)\.\s+/);
+                const startNum = match ? match[1] : "1";
                 if (!inList || listType !== "ol") {
                     if (inList) html += listType === "ol" ? "</ol>" : "</ul>";
-                    html += "<ol>";
+                    const startAttr = startNum !== "1" ? ` start="${startNum}"` : "";
+                    html += `<ol${startAttr}>`;
                     inList = true;
                     listType = "ol";
                 }
@@ -894,8 +994,26 @@
                 continue;
             }
             if (inList && line.trim() === "") {
+                // Lookahead: check if next non-empty line continues list
+                let nextIdx = i + 1;
+                while (nextIdx < lines.length && lines[nextIdx].trim() === "") {
+                    nextIdx++;
+                }
+                if (nextIdx < lines.length) {
+                    const nextTrim = lines[nextIdx].trim();
+                    if (listType === "ol" && /^\d+\.\s+/.test(nextTrim)) {
+                        continue;
+                    }
+                    if (listType === "ul" && /^[-*]\s+/.test(nextTrim)) {
+                        continue;
+                    }
+                }
                 html += listType === "ol" ? "</ol>" : "</ul>";
                 inList = false;
+                continue;
+            }
+            if (inList && /^\s{2,}\S/.test(line)) {
+                html += `<br><span style="display:inline-block; margin-left:1.5rem;">${formatInline(line.trim())}</span>`;
                 continue;
             }
             if (line.trim()) {
@@ -949,8 +1067,18 @@
             sel.value = activeCitationStyle || "standard";
         });
 
-        primaryReportSources = checked.map(item => {
+        const seenUrls = new Set();
+        primaryReportSources = [];
+        for (const item of checked) {
             const p = item.passage;
+            const normUrl = (p.source_url || "").trim().toLowerCase();
+            const dedupeKey = normUrl || (p.source_title || "");
+            if (dedupeKey && seenUrls.has(dedupeKey)) {
+                continue;
+            }
+            if (dedupeKey) {
+                seenUrls.add(dedupeKey);
+            }
             let domain = "";
             if (p.source_url) {
                 try {
@@ -959,7 +1087,7 @@
                     domain = p.source_url;
                 }
             }
-            return {
+            primaryReportSources.push({
                 url: p.source_url,
                 domain: domain,
                 title: p.source_title || domain || "Source Record",
@@ -967,8 +1095,8 @@
                 retrieval_date: p.retrieval_timestamp || new Date().toISOString().split("T")[0],
                 jurisdiction_tag: p.jurisdiction_tag || p.jurisdiction_badge || "",
                 jurisdiction_code: p.jurisdiction_code || "",
-            };
-        });
+            });
+        }
 
         const outputCard = document.getElementById("custom-report-output-card") || (customSec && customSec.querySelector(".report-output-card"));
         const outputBody = outputCard ? outputCard.querySelector(".report-content-body") : null;
@@ -1066,7 +1194,15 @@
         if (!sources || sources.length === 0) {
             worksCitedLines.push("*No sources recorded.*");
         } else {
-            sources.forEach((s, idx) => {
+            const seen = new Set();
+            const deduped = [];
+            for (const s of sources) {
+                const norm = (s.url || "").trim().toLowerCase() || (s.title || "");
+                if (norm && seen.has(norm)) continue;
+                if (norm) seen.add(norm);
+                deduped.push(s);
+            }
+            deduped.forEach((s, idx) => {
                 worksCitedLines.push(`${idx + 1}. ${formatCitation(s, style)}`);
             });
         }
@@ -1651,9 +1787,11 @@
             panel.appendChild(cornellGrid);
         }
 
-        // Report & Evidence Bank Studio Panel
-        const reportBuilderPanel = renderReportBuilderPanel(claim, data);
-        panel.appendChild(reportBuilderPanel);
+        // Report & Evidence Bank Studio Panel (only fallback inline if #custom-report-section is not in the page)
+        if (!document.getElementById("custom-report-section")) {
+            const reportBuilderPanel = renderReportBuilderPanel(claim, data);
+            panel.appendChild(reportBuilderPanel);
+        }
 
 
         // 3. Actionable Explore Further
@@ -2178,14 +2316,27 @@
             sel.value = activeCitationStyle;
         });
 
-        const hasCheckedQuotes = Object.values(selectedQuotes).some(q => q && q.checked);
-        if (hasCheckedQuotes) {
-            renderCustomReport();
-        } else {
+        const activeSess = sessionInquiries.find(s => s.id === activeSessionId) || sessionInquiries[0];
+        if (!activeSess || !activeSess.data) {
+            if (confirmedScopeCard) confirmedScopeCard.classList.add("hidden");
+            const scopeBanner = document.getElementById("confirmed-scope-banner");
+            if (scopeBanner) scopeBanner.classList.add("hidden");
+            const claimsSec = document.getElementById("claims-section");
+            if (claimsSec) claimsSec.classList.add("hidden");
             const customReportSec = document.getElementById("custom-report-section");
             if (customReportSec) customReportSec.classList.add("hidden");
             const reportStudio = document.getElementById("report-studio-section");
             if (reportStudio) reportStudio.classList.add("hidden");
+        } else {
+            const hasCheckedQuotes = Object.values(selectedQuotes).some(q => q && q.checked);
+            if (hasCheckedQuotes) {
+                renderCustomReport();
+            } else {
+                const customReportSec = document.getElementById("custom-report-section");
+                if (customReportSec) customReportSec.classList.add("hidden");
+                const reportStudio = document.getElementById("report-studio-section");
+                if (reportStudio) reportStudio.classList.add("hidden");
+            }
         }
 
         return true;
@@ -2228,6 +2379,17 @@
         resultsSection.classList.add("hidden");
         if (clarificationSection) clarificationSection.classList.add("hidden");
         if (stickyInquiryBar) stickyInquiryBar.classList.add("hidden");
+        if (confirmedScopeCard) confirmedScopeCard.classList.add("hidden");
+        const scopeBanner = document.getElementById("confirmed-scope-banner");
+        if (scopeBanner) scopeBanner.classList.add("hidden");
+        const claimsSec = document.getElementById("claims-section");
+        if (claimsSec) claimsSec.classList.add("hidden");
+        if (claimsList) claimsList.innerHTML = "";
+        if (submittedText) submittedText.textContent = "";
+        if (submittedUrlRow) submittedUrlRow.classList.add("hidden");
+        const formEl = document.getElementById("extraction-form") || document.getElementById("input-section");
+        if (formEl) formEl.classList.remove("compact-collapsed");
+
         const customReportSec = document.getElementById("custom-report-section");
         if (customReportSec) customReportSec.classList.add("hidden");
         const reportStudio = document.getElementById("report-studio-section");
@@ -2327,14 +2489,25 @@
         const staleBanner = document.getElementById("claims-outdated-banner");
         if (staleBanner) staleBanner.remove();
 
+        const formEl = document.getElementById("extraction-form") || document.getElementById("input-section");
+        const confirmedScope = document.getElementById("confirmed-scope-card");
+        const scopeBanner = document.getElementById("confirmed-scope-banner");
+        const claimsSec = document.getElementById("claims-section");
+
         if (target.isClarification && target.data) {
             resultsSection.classList.add("hidden");
+            if (confirmedScope) confirmedScope.classList.add("hidden");
+            if (scopeBanner) scopeBanner.classList.add("hidden");
+            if (claimsSec) claimsSec.classList.add("hidden");
+            if (formEl) formEl.classList.remove("compact-collapsed");
             renderClarification(target.data, currentSubmissionSeq);
         } else if (target.data) {
             if (clarificationSection) clarificationSection.classList.add("hidden");
             renderResults(target.data, currentSubmissionSeq);
+            let hasResearch = false;
             (target.claims || []).forEach(claim => {
                 if (claimResearchTabs[claim.id] && claimResearchTabs[claim.id].length > 0) {
+                    hasResearch = true;
                     const card = document.getElementById(`claim-card-${claim.id}`);
                     if (card) {
                         const container = card.querySelector(`#research-container-${claim.id}`) || card.querySelector(`.claim-research-container`);
@@ -2346,9 +2519,21 @@
                     }
                 }
             });
+            if (formEl) {
+                if (hasResearch) formEl.classList.add("compact-collapsed");
+                else formEl.classList.remove("compact-collapsed");
+            }
         } else {
             resultsSection.classList.add("hidden");
             if (clarificationSection) clarificationSection.classList.add("hidden");
+            if (confirmedScope) confirmedScope.classList.add("hidden");
+            if (scopeBanner) scopeBanner.classList.add("hidden");
+            if (claimsSec) claimsSec.classList.add("hidden");
+            if (claimsList) claimsList.innerHTML = "";
+            if (submittedText) submittedText.textContent = "";
+            if (submittedUrlRow) submittedUrlRow.classList.add("hidden");
+            if (stickyInquiryBar) stickyInquiryBar.classList.add("hidden");
+            if (formEl) formEl.classList.remove("compact-collapsed");
         }
 
         document.querySelectorAll("#citation-style-select, .citation-style-select").forEach(sel => {
@@ -2381,6 +2566,17 @@
         resultsSection.classList.add("hidden");
         if (clarificationSection) clarificationSection.classList.add("hidden");
         if (stickyInquiryBar) stickyInquiryBar.classList.add("hidden");
+        const confirmedScope = document.getElementById("confirmed-scope-card");
+        if (confirmedScope) confirmedScope.classList.add("hidden");
+        const scopeBanner = document.getElementById("confirmed-scope-banner");
+        if (scopeBanner) scopeBanner.classList.add("hidden");
+        const claimsSec = document.getElementById("claims-section");
+        if (claimsSec) claimsSec.classList.add("hidden");
+        if (claimsList) claimsList.innerHTML = "";
+        if (submittedText) submittedText.textContent = "";
+        if (submittedUrlRow) submittedUrlRow.classList.add("hidden");
+        const formEl = document.getElementById("extraction-form") || document.getElementById("input-section");
+        if (formEl) formEl.classList.remove("compact-collapsed");
         const customReportSec = document.getElementById("custom-report-section");
         if (customReportSec) customReportSec.classList.add("hidden");
         const reportStudio = document.getElementById("report-studio-section");
@@ -2411,19 +2607,16 @@
         showLoadingProgress("Analyzing your statement and checking scope…");
 
         // Maintain top-level session list
-        let currentSess = sessionInquiries.find(s => s.id === activeSessionId);
-        if (!currentSess) {
+        let originSession = sessionInquiries.find(s => s.id === activeSessionId);
+        if (!originSession) {
             const sessId = "sess_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
             activeSessionId = sessId;
-            let shortTitle = text;
-            if (shortTitle.length > 28) {
-                shortTitle = shortTitle.slice(0, 26) + "…";
-            }
-            currentSess = {
+            let shortTitle = text.length > 28 ? text.slice(0, 26) + "…" : text;
+            originSession = {
                 id: sessId,
                 title: `Inquiry ${sessionInquiries.length + 1}: ${shortTitle}`,
                 inputText: text,
-                sourceUrl: sourceUrl.value.trim() || null,
+                sourceUrl: sourceUrl ? (sourceUrl.value.trim() || null) : null,
                 scopeQuestion: "",
                 scopeEdited: false,
                 claims: [],
@@ -2436,18 +2629,19 @@
                 isClarifying: false,
                 isResearching: false,
             };
-            sessionInquiries.push(currentSess);
+            sessionInquiries.push(originSession);
             renderSessionTabs();
         } else {
-            currentSess.inputText = text;
-            currentSess.sourceUrl = sourceUrl.value.trim() || null;
-            if (!currentSess.data && (currentSess.title.startsWith("Session ") || currentSess.title === "Session 1")) {
+            originSession.inputText = text;
+            originSession.sourceUrl = sourceUrl ? (sourceUrl.value.trim() || null) : null;
+            if (!originSession.data && (originSession.title.startsWith("Session ") || originSession.title === "Session 1")) {
                 let shortTitle = text.length > 28 ? text.slice(0, 26) + "…" : text;
-                const idx = sessionInquiries.indexOf(currentSess) + 1;
-                currentSess.title = `Inquiry ${idx}: ${shortTitle}`;
+                const idx = sessionInquiries.indexOf(originSession) + 1;
+                originSession.title = `Inquiry ${idx}: ${shortTitle}`;
                 renderSessionTabs();
             }
         }
+        const originSessionId = originSession.id;
         saveWorkspaceToStorage();
 
         // Clear previous results while new request is in flight to guarantee clean state ownership
@@ -2457,8 +2651,8 @@
         }
 
         const body = {
-            text: inputText.value,
-            source_url: sourceUrl.value.trim() || null,
+            text: text,
+            source_url: sourceUrl ? (sourceUrl.value.trim() || null) : null,
             round_index: 1,
             exchanges: [],
             explicit_broad: false,
@@ -2480,7 +2674,9 @@
                 data = await res.json();
             } catch (parseErr) {
                 if (seq !== currentSubmissionSeq) return;
-                showError("Response error", "Server returned an unparseable response.");
+                if (activeSessionId === originSessionId) {
+                    showError("Response error", "Server returned an unparseable response.");
+                }
                 return;
             }
 
@@ -2489,40 +2685,47 @@
             }
 
             if (!res.ok) {
-                showError(
-                    data.error || `Error ${res.status}`,
-                    data.detail || "Something went wrong."
-                );
+                if (activeSessionId === originSessionId) {
+                    showError(
+                        data.error || `Error ${res.status}`,
+                        data.detail || "Something went wrong."
+                    );
+                }
                 return;
             }
 
             if (data.clarification_needed) {
-                const currentSess = sessionInquiries.find(s => s.id === activeSessionId);
-                if (currentSess) {
-                    currentSess.data = data;
-                    currentSess.isClarification = true;
-                    currentSess.clarificationExchanges = clarificationExchanges;
-                }
+                originSession.data = data;
+                originSession.isClarification = true;
+                originSession.clarificationExchanges = clarificationExchanges;
+            } else {
+                originSession.data = data;
+                originSession.isClarification = false;
+                originSession.scopeQuestion = data.confirmed_scope_question || data.interpreted_question || (data.claims && data.claims[0] && data.claims[0].normalized_assertion) || text;
+                originSession.claims = data.claims || [];
+            }
+            originSession.isClarifying = false;
+
+            if (activeSessionId === originSessionId) {
                 renderSessionTabs();
-                renderClarification(data, seq);
+                if (data.clarification_needed) {
+                    renderClarification(data, seq);
+                } else {
+                    renderResults(data, seq);
+                }
                 saveWorkspaceToStorage();
             } else {
-                const currentSess = sessionInquiries.find(s => s.id === activeSessionId);
-                if (currentSess) {
-                    currentSess.data = data;
-                    currentSess.isClarification = false;
-                    currentSess.scopeQuestion = currentConfirmedScopeQuestion;
-                    currentSess.claims = data.claims || [];
-                }
+                // Tab switched in-flight! Do NOT touch active tab's screen
                 renderSessionTabs();
-                renderResults(data, seq);
                 saveWorkspaceToStorage();
             }
         } catch (err) {
             if (seq !== currentSubmissionSeq) return;
-            showError("Network error", "Could not reach the server. Is it running?");
+            if (activeSessionId === originSessionId) {
+                showError("Network error", "Could not reach the server. Is it running?");
+            }
         } finally {
-            if (seq === currentSubmissionSeq) {
+            if (activeSessionId === originSessionId && seq === currentSubmissionSeq) {
                 setLoading(false);
                 hideLoadingProgress();
             }
@@ -2626,6 +2829,23 @@
     }
 
     // Milestone 4F: Wire controls in #custom-report-section
+    const btnToggleReportStudio = document.getElementById("btn-toggle-report-studio");
+    const reportStudioBody = document.getElementById("report-studio-collapsible-body");
+    if (btnToggleReportStudio && reportStudioBody) {
+        btnToggleReportStudio.addEventListener("click", () => {
+            const isHidden = reportStudioBody.classList.contains("hidden");
+            if (isHidden) {
+                reportStudioBody.classList.remove("hidden");
+                btnToggleReportStudio.innerHTML = "Hide Options ▴";
+                btnToggleReportStudio.setAttribute("aria-expanded", "true");
+            } else {
+                reportStudioBody.classList.add("hidden");
+                btnToggleReportStudio.innerHTML = "Customize &amp; Generate Report ▾";
+                btnToggleReportStudio.setAttribute("aria-expanded", "false");
+            }
+        });
+    }
+
     const customCitationSelect = document.getElementById("citation-style-select");
     if (customCitationSelect) {
         customCitationSelect.addEventListener("change", (e) => {
@@ -2669,6 +2889,7 @@
                 alert("Please select at least one quote to include in the report.");
                 return;
             }
+            const originSessionId = activeSessionId;
             btnCustomGen.disabled = true;
             btnCustomGen.textContent = "Synthesizing Report…";
             try {
@@ -2704,11 +2925,13 @@
             } finally {
                 btnCustomGen.disabled = false;
                 btnCustomGen.innerHTML = `<span>Synthesize Custom Report &amp; Evidence Bank</span> <span aria-hidden="true">&rarr;</span>`;
-                const outputCard = document.getElementById("custom-report-output-card");
-                const outputBody = outputCard ? outputCard.querySelector(".report-content-body") : null;
-                if (outputCard && outputBody && primaryGeneratedMarkdown) {
-                    outputBody.innerHTML = renderMarkdown(primaryGeneratedMarkdown);
-                    outputCard.classList.remove("hidden");
+                if (activeSessionId === originSessionId) {
+                    const outputCard = document.getElementById("custom-report-output-card");
+                    const outputBody = outputCard ? outputCard.querySelector(".report-content-body") : null;
+                    if (outputCard && outputBody && primaryGeneratedMarkdown) {
+                        outputBody.innerHTML = renderMarkdown(primaryGeneratedMarkdown);
+                        outputCard.classList.remove("hidden");
+                    }
                 }
             }
         });
@@ -2800,6 +3023,7 @@
             startNewSession,
             renderReportBuilderPanel,
             updateAllEvidenceCounters,
+            renderMarkdown,
             showError,
             hideError,
             setLoading,
@@ -2812,6 +3036,7 @@
             markSnapshotOutdated,
         };
 
+        window.renderMarkdown = renderMarkdown;
         window.saveWorkspaceToStorage = saveWorkspaceToStorage;
         window.loadWorkspaceFromStorage = loadWorkspaceFromStorage;
         window.clearWorkspace = clearWorkspace;
