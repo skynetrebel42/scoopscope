@@ -1,10 +1,10 @@
 # ScoopScope — Project Handoff & Architecture Baseline
 
-**Document Version**: 1.4  
-**Current Milestone**: Milestone 4F Complete (Decision 016) & Phase 4 Closed  
-**Baseline Commit**: `b049fc0`  
+**Document Version**: 1.5  
+**Current Milestone**: Milestone 4G & 4H Close-Out & Workflow Baseline Sync (Decisions 017–019)  
+**Baseline Commit**: `setup/workflow` (`a3775fa`)  
 **Workspace Root**: `c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope`  
-**Test Suite Status**: 280 passed offline (100% passing) across 11 test suites  
+**Test Suite Status**: 284 passed offline (100% passing) across 11 test suites  
 
 ---
 
@@ -143,6 +143,23 @@ All contributors and agents must uphold these non-negotiable rules:
   - Implemented quota-exceeded and disabled-storage defensive error handling without crashing UI interactions.
   - Shipped at `e054d1e` with 278 passing tests offline across 11 test suites.
 - **Decision 016 (Milestone 4F)**: Execute Milestone 4F (`milestone-4f-live-smoke-and-ui-polish.md`) — full Phase 4 end-to-end headless Chrome & FastAPI live smoke verification plus DOM/CSS synchronization across `#input-text`, `#custom-report-section`, `#session-tabs-bar`, and `localStorage` restore; shipped at `b049fc0` with 280 passing tests.
+- **Decision 017 (Milestone 4G)**: Multi-Tab Async Search Isolation, Single Collapsible Report Studio, Compact Layout, & Works Cited Deduplication
+  - Bound async search/clarification network promises to `originSessionId` in `frontend/app.js`, isolating background updates from switched tabs and saving data strictly to the originating session.
+  - Consolidated duplicate Report Studio panels into a single collapsible bar in `#custom-report-section` with cross-tab evidence counters.
+  - Auto-compacted inquiry and claims sections behind `#sticky-inquiry-bar` upon research completion.
+  - Enforced sequential list numbering in generated reports and deduplicated Works Cited bibliography entries by normalized source URL.
+  - Shipped at commit `f75e8ee` with 282 passing tests across 11 test suites.
+- **Decision 018 (Milestone 4H)**: Empty-Tab Report Studio Hiding, Tab Bar Scrollbar Removal, Claim Results Accordion & Single Works Cited
+  - Enforced `.hidden { display: none !important; }` in `frontend/style.css` and suppressed `#custom-report-section` on empty tabs and immediately following workspace reset.
+  - Removed the horizontal Windows scrollbar from `#session-tabs-list` by enabling flex wrapping (`flex-wrap: wrap; overflow-x: visible; scrollbar-width: none;`).
+  - Added `.btn-toggle-evidence` claim results accordion, auto-collapsed prior claim results when initiating source discovery on another claim, and defaulted `.technical-audit-drawer` to closed (`!open`).
+  - Stripped redundant LLM trailing Works Cited sections to ensure exactly one bibliography appears, and sanitized literal `\n` backslash sequences in extracted quotes.
+  - Shipped at commit `83e03bb` with 282 passing tests across 11 test suites.
+- **Decision 019 (4G/4H Close-Out & Workflow Baseline Sync)**: Mandatory Milestone Close-Out, Selector Inventory Integrity, & Workflow Automation Sync
+  - Completed Mandatory Milestone Close-Out for Milestones 4G and 4H, archiving `milestone-4h-empty-tab-and-claim-accordion.md` to `docs/archive/`.
+  - Established frontend selector inventory integrity rules in `.agents/rules/frontend.md` and added automated Python AST/regex validation (`test_selector_inventory` in `test_frontend_ordering.py`), eliminating phantom/ghost element IDs from `frontend/app.js` and tests.
+  - Added automated build loop workflows (`/build`, `/review`, `/playtest`) and single-file Gemini planner pack generator (`scripts/pack.py`).
+  - Synced all cumulative handoff files (`PROJECT_HANDOFF.md`, `docs/HOW_IT_WORKS.md`, `.handoff-builder.md`, `.handoff-planner.md`) to the unified baseline with 284 passing offline tests across 11 test suites.
 
 ---
 
@@ -203,6 +220,22 @@ All contributors and agents must uphold these non-negotiable rules:
     - Synchronized visible `#input-text` and `#claim-input` two-way bindings, `#custom-report-section` visibility, and live citation style switching.
     - Verified multi-tab session restore, selected quote rehydration, official LA local city badges, and instant `#btn-clear-workspace` reset.
     - Shipped at commit `b049fc0` with 280 tests passing offline across 11 test suites.
+14. **Milestone 015 (Milestone 4G)**: Playtest UX Polish & Multi-Tab Async Search Isolation
+    - Isolated async search and clarification execution across session tabs via `originSessionId` binding.
+    - Single collapsible Report Studio bar in `#custom-report-section` with multi-tab quote selection counters.
+    - Sequential ordered list rendering and URL-based Works Cited deduplication.
+    - Shipped at commit `f75e8ee` with 282 tests passing offline across 11 test suites.
+15. **Milestone 016 (Milestone 4H)**: Empty-Tab Report Studio Hiding, Tab Bar Wrapping, Claim Accordion & Single Works Cited
+    - Hidden Report Studio on fresh tabs and post-clear workspace.
+    - Tab bar flex wrapping eliminating Windows horizontal scrollbar.
+    - Claim evidence accordion with auto-collapse on new research and closed-by-default technical audit drawer.
+    - Single Works Cited deduplication and quote string newline escape sanitization.
+    - Shipped at commit `83e03bb` with 282 tests passing offline across 11 test suites.
+16. **Milestone 017 (Milestone 4G/4H Close-Out & Workflow Baseline Sync)**: Workflow Tooling, Selector Inventory Integrity & Full Baseline Sync
+    - Archived 4H spec to `docs/archive/milestone-4h-empty-tab-and-claim-accordion.md`.
+    - Added `test_selector_inventory` ensuring exact 1:1 parity between `index.html` and `app.js` element IDs.
+    - Integrated build loop workflows and `scripts/pack.py` planner pack generator.
+    - Verified full 284 offline test suite passes (100% passing).
 
 
 
