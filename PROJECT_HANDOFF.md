@@ -2,7 +2,7 @@
 
 **Document Version**: 1.6  
 **Current Milestone**: Milestone 5A Close-Out (Decision 020)  
-**Baseline Commit**: `setup/workflow` (`a3775fa`)  
+**Baseline Commit**: `milestone/5a-copy-quote-citation` (`fc05b33`)  
 **Workspace Root**: `c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope`  
 **Test Suite Status**: 285 passed (100% passing) across 11 test suites  
 
