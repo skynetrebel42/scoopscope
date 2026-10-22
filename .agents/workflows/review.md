@@ -1,3 +1,7 @@
+---
+description: Review the current ScoopScope milestone for bugs, regressions, and scope violations without editing code.
+---
+
 # /review
 
 Read only the active spec and the output of `git diff master...HEAD`. Do not edit code.

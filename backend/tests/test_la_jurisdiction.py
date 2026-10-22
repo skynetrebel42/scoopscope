@@ -21,6 +21,8 @@ Covers:
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -29,7 +31,7 @@ from app.jurisdiction import (
     detect_la_jurisdiction_ambiguity,
 )
 from app.main import app
-from app.models import ResearchRequest
+from app.models import ClarificationResponse, InvestigationPurpose, ResearchRequest
 from app.research import ResearchOrchestrator
 from app.search.models import RawSearchResult
 from app.search.provider import SearchProvider
@@ -217,16 +219,52 @@ def test_detect_la_ambiguity_returns_false(text: str):
 
 @pytest.mark.anyio
 async def test_clarify_endpoint_surfaces_la_disambiguation():
-    """Ambiguous LA civic questions must surface City vs County vs Both disambiguation in /api/clarify."""
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post(
-            "/api/clarify",
-            json={
-                "text": "Did LA raise the minimum wage?",
-                "source_url": None,
-                "round_index": 1,
-            },
+    """Endpoint plumbing coverage: verify /api/clarify delegates to the adapter with expected inputs
+    and returns the structured clarification response without network calls.
+
+    Note: This tests FastAPI request handling and response serialization plumbing. A mocked response
+    does not verify that the live Gemini model prompt will select these specific choices in production.
+    """
+    mock_clarification = ClarificationResponse(
+        submitted_text="Did LA raise the minimum wage?",
+        purpose=InvestigationPurpose.CHECK_CLAIM,
+        is_clear=False,
+        clarification_needed=True,
+        round_index=1,
+        max_rounds_reached=False,
+        question="Which jurisdiction does your inquiry refer to?",
+        choices=[
+            "City of Los Angeles (City policy/ordinance)",
+            "Los Angeles County (County/unincorporated)",
+            "Both (City of LA and LA County)",
+        ],
+        interpreted_question="Did the City of Los Angeles or Los Angeles County raise the minimum wage?",
+        material_uncertainties=["Jurisdiction unconfirmed: City of Los Angeles vs. Los Angeles County"],
+        subclaims=[],
+        status_message="Clarification requested for LA civic jurisdiction",
+    )
+
+    with patch("app.main.gemini.clarify_inquiry", new_callable=AsyncMock) as mock_clarify:
+        mock_clarify.return_value = mock_clarification
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/clarify",
+                json={
+                    "text": "Did LA raise the minimum wage?",
+                    "source_url": None,
+                    "round_index": 1,
+                },
+            )
+
+        # Assert adapter plumbing delegation with expected inputs
+        mock_clarify.assert_awaited_once_with(
+            text="Did LA raise the minimum wage?",
+            source_url=None,
+            round_index=1,
+            exchanges=[],
+            explicit_broad=False,
         )
+
     assert resp.status_code == 200
     data = resp.json()
     assert data["clarification_needed"] is True

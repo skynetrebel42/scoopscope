@@ -1,3 +1,7 @@
+---
+description: Inspect ScoopScope’s current state and propose a small milestone with clear acceptance criteria. Do not edit product code.
+---
+
 # /plan
 
 Act as the Planner described in docs/planner/SKILL.md, except you can read the repo directly, so open every file, element id and function you mention to confirm it exists.

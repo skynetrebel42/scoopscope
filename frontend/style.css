@@ -1656,6 +1656,45 @@ body::before {
     color: #93c5fd;
 }
 
+.quote-actions-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+}
+
+.btn-copy-quote-citation {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.25rem 0.6rem;
+    cursor: pointer;
+    transition: all var(--transition);
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.btn-copy-quote-citation:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.btn-copy-quote-citation:active,
+.btn-copy-quote-citation.copied {
+    border-color: #10b981;
+    color: #10b981;
+}
+
+.btn-copy-quote-citation.copy-failed {
+    border-color: #ef4444;
+    color: #ef4444;
+}
+
 .full-context-container {
     background: var(--bg-secondary);
     border: 1px solid var(--border-subtle);

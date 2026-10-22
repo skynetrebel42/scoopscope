@@ -1134,7 +1134,7 @@
                 domain: domain,
                 title: p.source_title || domain || "Source Record",
                 publication_date: p.publication_date,
-                retrieval_date: p.retrieval_timestamp || new Date().toISOString().split("T")[0],
+                retrieval_date: p.retrieval_timestamp || p.retrieved_at || null,
                 jurisdiction_tag: p.jurisdiction_tag || p.jurisdiction_badge || "",
                 jurisdiction_code: p.jurisdiction_code || "",
             });
@@ -1269,6 +1269,37 @@
         }
     }
 
+    function formatQuoteWithCitation(quoteText, sourceRecord, style) {
+        const cleanQuote = cleanQuoteText(quoteText);
+        const citation = formatCitation(sourceRecord || {}, style || activeCitationStyle || "standard");
+        return `"${cleanQuote}" — ${citation}`;
+    }
+
+    async function copyTextToClipboard(text) {
+        window.__lastCopiedText = text;
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (_) {}
+        }
+        try {
+            const textarea = document.createElement("textarea");
+            textarea.value = text;
+            textarea.style.position = "fixed";
+            textarea.style.left = "-9999px";
+            textarea.style.top = "0";
+            textarea.setAttribute("readonly", "");
+            document.body.appendChild(textarea);
+            textarea.select();
+            const success = document.execCommand("copy");
+            document.body.removeChild(textarea);
+            return !!success;
+        } catch (_) {
+            return false;
+        }
+    }
+
     function updateReportWorksCited(markdown, sources, style) {
         if (!markdown) return "";
         const cleanMd = stripTrailingWorksCited(markdown);
@@ -1297,6 +1328,8 @@
     window.stripTrailingWorksCited = stripTrailingWorksCited;
     window.stripMarkdownToPlainText = stripMarkdownToPlainText;
     window.formatCitation = formatCitation;
+    window.formatQuoteWithCitation = formatQuoteWithCitation;
+    window.copyTextToClipboard = copyTextToClipboard;
     window.updateReportWorksCited = updateReportWorksCited;
 
     // --- Report & Evidence Bank Studio Panel Builder ---
@@ -1676,6 +1709,21 @@
                     domainDisplay = parsed.hostname.replace(/^www\./, "");
                 } catch (_) {}
 
+                let matchedSource = null;
+                if (Array.isArray(data.retrieved_sources)) {
+                    if (p.source_id) {
+                        matchedSource = data.retrieved_sources.find(s => s.source_id === p.source_id) || null;
+                    }
+                    if (!matchedSource && p.source_url) {
+                        matchedSource = data.retrieved_sources.find(s =>
+                            s.initial_url === p.source_url || s.final_url === p.source_url || s.url === p.source_url
+                        ) || null;
+                    }
+                }
+                const matchedHit = (!matchedSource?.title && Array.isArray(data.search_hits))
+                    ? data.search_hits.find(h => p.source_url && h.url === p.source_url) || null
+                    : null;
+
                 const pairRow = document.createElement("div");
                 pairRow.className = "cornell-pair-row";
 
@@ -1732,8 +1780,8 @@
                 cueMeta.appendChild(cueDate);
 
                 // Milestone 4C: Deterministic Official Jurisdiction Badge
-                let jurisTag = p.jurisdiction_badge || p.jurisdiction_tag || (data.retrieved_sources && (data.retrieved_sources.find(s => s.source_id === p.source_id || s.initial_url === p.source_url || s.final_url === p.source_url) || {}).jurisdiction_tag);
-                let jurisCode = p.jurisdiction_code || (data.retrieved_sources && (data.retrieved_sources.find(s => s.source_id === p.source_id || s.initial_url === p.source_url || s.final_url === p.source_url) || {}).jurisdiction_code);
+                let jurisTag = p.jurisdiction_badge || p.jurisdiction_tag || (matchedSource ? matchedSource.jurisdiction_tag : null) || (matchedHit ? matchedHit.jurisdiction_tag : null);
+                let jurisCode = p.jurisdiction_code || (matchedSource ? matchedSource.jurisdiction_code : null) || (matchedHit ? matchedHit.jurisdiction_code : null);
                 if (jurisTag === "LA Local City Official" && !jurisCode) {
                     jurisCode = "la_local_city";
                 }
@@ -1848,14 +1896,61 @@
                     actionsRow.appendChild(spacer);
                 }
 
+                const actionsRight = document.createElement("div");
+                actionsRight.className = "quote-actions-right";
+
                 const findExactLink = document.createElement("a");
                 findExactLink.className = "link-find-exact";
                 findExactLink.href = isSafeHttpUrl(deepUrl) ? deepUrl : (isSafeHttpUrl(p.source_url) ? p.source_url : "#");
                 findExactLink.target = "_blank";
                 findExactLink.rel = "noopener noreferrer";
                 findExactLink.innerHTML = `Find exact line on website <span aria-hidden="true">&nearr;</span>`;
-                actionsRow.appendChild(findExactLink);
+                actionsRight.appendChild(findExactLink);
 
+                // Milestone 5A: One-Click Copy Quote + Citation Button
+                const quoteSourceRecord = {
+                    url: p.source_url,
+                    domain: domainDisplay,
+                    title: p.source_title || (matchedSource ? (matchedSource.title || matchedSource.page_title) : "") || (matchedHit ? matchedHit.title : "") || domainDisplay || "Source Record",
+                    publication_date: p.publication_date || (matchedSource ? matchedSource.publication_date : null),
+                    retrieval_date: p.retrieval_timestamp || p.retrieved_at || (matchedSource ? (matchedSource.retrieval_timestamp || matchedSource.fetched_at) : null) || null,
+                    jurisdiction_tag: jurisTag || "",
+                    jurisdiction_code: jurisCode || "",
+                };
+
+                const copyQuoteBtn = document.createElement("button");
+                copyQuoteBtn.type = "button";
+                copyQuoteBtn.className = "btn-copy-quote-citation";
+                copyQuoteBtn.textContent = "Copy Quote + Citation";
+                copyQuoteBtn.title = "Copy verbatim quote with formatted citation to clipboard";
+
+                let copyFeedbackTimer = null;
+                copyQuoteBtn.addEventListener("click", async () => {
+                    const currentStyle = activeCitationStyle || "standard";
+                    const textToCopy = formatQuoteWithCitation(p.exact_passage, quoteSourceRecord, currentStyle);
+                    const copyFn = window.copyTextToClipboard || copyTextToClipboard;
+                    const success = await copyFn(textToCopy);
+                    if (success) {
+                        copyQuoteBtn.textContent = "Copied! ✓";
+                        copyQuoteBtn.classList.add("copied");
+                        copyQuoteBtn.classList.remove("copy-failed");
+                    } else {
+                        copyQuoteBtn.textContent = "Copy Failed";
+                        copyQuoteBtn.classList.add("copy-failed");
+                        copyQuoteBtn.classList.remove("copied");
+                    }
+                    if (copyFeedbackTimer) {
+                        clearTimeout(copyFeedbackTimer);
+                    }
+                    copyFeedbackTimer = setTimeout(() => {
+                        copyQuoteBtn.textContent = "Copy Quote + Citation";
+                        copyQuoteBtn.classList.remove("copied", "copy-failed");
+                        copyFeedbackTimer = null;
+                    }, 1500);
+                });
+                actionsRight.appendChild(copyQuoteBtn);
+
+                actionsRow.appendChild(actionsRight);
                 quoteBullet.appendChild(actionsRow);
 
                 if (contextContainer) {
@@ -3129,6 +3224,8 @@
             hideLoadingProgress,
             handleInputEdit,
             markSnapshotOutdated,
+            formatQuoteWithCitation,
+            copyTextToClipboard,
         };
 
         window.renderMarkdown = renderMarkdown;

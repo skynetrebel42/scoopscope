@@ -1684,5 +1684,36 @@ def test_selector_inventory():
     assert not missing_ids, f"IDs used in app.js but not defined in index.html or assigned in app.js: {missing_ids}"
 
 
+def test_quote_attribution_source_id_priority_and_no_date_invention():
+    """Verify Milestone 5A attribution guardrails in frontend/app.js:
+    1. Exact source-ID match is prioritized before falling back to URL matching.
+    2. Retrieval date strictly reflects passage/source timestamps without inventing today's date.
+    3. Copy button handles honest failure feedback when clipboard operation rejects.
+    """
+    project_root = Path(__file__).resolve().parent.parent.parent
+    app_js_path = project_root / "frontend" / "app.js"
+    assert app_js_path.is_file(), f"Missing app.js at {app_js_path}"
+    app_js = app_js_path.read_text(encoding="utf-8")
+
+    # 1. Exact source-ID prioritized before URL fallback
+    assert "p.source_id" in app_js and "s.source_id === p.source_id" in app_js, (
+        "frontend/app.js must check exact source_id match on retrieved sources"
+    )
+
+    # 2. No Date() invention for retrieval_date in quoteSourceRecord / passage-citation slice
+    quote_record_idx = app_js.find("const quoteSourceRecord = {")
+    assert quote_record_idx != -1, "quoteSourceRecord must be present in frontend/app.js"
+    quote_record_slice = app_js[quote_record_idx : quote_record_idx + 1200]
+    assert 'new Date().toISOString().split("T")[0]' not in quote_record_slice, (
+        "quoteSourceRecord in frontend/app.js must not invent today's date for retrieval_date"
+    )
+
+    # 3. Honest failure handling on copy rejection
+    assert "Copy Failed" in app_js and "copy-failed" in app_js, (
+        "frontend/app.js must provide honest failure feedback on copy failure"
+    )
+
+
+
 
 

@@ -53,3 +53,27 @@ These rules govern all phases of development. Never weaken, bypass, or compromis
    - Always end every report with a dedicated section headed `In plain terms:` (1–2 plain-English, jargon-free sentences explaining what the user will notice).
 8. **Mandatory Milestone Close-Out Rule**:
    - At the close of every milestone, move the finished spec from `docs/specs/` to `docs/archive/` and update `PROJECT_HANDOFF.md`, `docs/HOW_IT_WORKS.md`, `.handoff-builder.md`, and `.handoff-planner.md` with the latest commit hash, passing test count, shipped summary, and next active spec path. Never leave finished specs in `docs/specs/`.
+
+---
+
+## 3. Autonomous Execution & Sandbox Boundaries
+
+1. **Workspace Virtual Environment**:
+   - Always run Python and pytest via the workspace virtual environment: `.\backend\.venv\Scripts\python.exe` (e.g., `.\backend\.venv\Scripts\python.exe -m pytest ...`). Never run generic `python` or `pytest`.
+2. **Autonomous Routine Progress**:
+   - Authorized routine implementation, file edits, syntax checks, and offline test executions within the requested task proceed without stopping for conversational reconfirmation.
+3. **Known Browser Sandbox Boundary**:
+   - Antigravity's sandboxed terminal restricts Windows IPC pipes needed by headless Chrome, causing browser launch failures.
+   - When a browser test encounters this known sandbox launch restriction:
+     - Do NOT retry the same blocked browser launch in the sandbox.
+     - Do NOT troubleshoot permissions, ACLs, environment variables, or add `--no-sandbox` flags.
+     - Immediately hand off execution to the Owner as one copy-pasteable ordinary-PowerShell command formatted with `Set-Location` and a fresh disposable basetemp:
+       ```powershell
+       Set-Location "c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope"; .\backend\.venv\Scripts\python.exe -m pytest <test-path> --basetemp=<fresh-disposable-path> --tb=short -v
+       ```
+4. **Scoped Reporting & Bounded Repairs**:
+   - Report test results (passed, failed, skipped) accurately and honestly.
+   - Repair failures ONLY when they are part of the explicitly requested task; never spontaneously expand scope to repair unrelated or out-of-scope failures.
+5. **Git Staging & Push Gate Preserved**:
+   - Always stage strictly by exact path (`git add <exact-path>`). Never use bulk staging (`git add .`, `git add -A`, or `git commit -a`).
+   - Stop at the **Push Gate** after committing locally: present the commit list and wait for Owner approval before running `git push`.

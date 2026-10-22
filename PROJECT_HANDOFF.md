@@ -1,10 +1,10 @@
 # ScoopScope — Project Handoff & Architecture Baseline
 
-**Document Version**: 1.5  
-**Current Milestone**: Milestone 4G & 4H Close-Out & Workflow Baseline Sync (Decisions 017–019)  
+**Document Version**: 1.6  
+**Current Milestone**: Milestone 5A Close-Out (Decision 020)  
 **Baseline Commit**: `setup/workflow` (`a3775fa`)  
 **Workspace Root**: `c:\Users\minhb\OneDrive\Desktop\Projects\ScoopScope`  
-**Test Suite Status**: 284 passed offline (100% passing) across 11 test suites  
+**Test Suite Status**: 285 passed (100% passing) across 11 test suites  
 
 ---
 
@@ -160,6 +160,13 @@ All contributors and agents must uphold these non-negotiable rules:
   - Established frontend selector inventory integrity rules in `.agents/rules/frontend.md` and added automated Python AST/regex validation (`test_selector_inventory` in `test_frontend_ordering.py`), eliminating phantom/ghost element IDs from `frontend/app.js` and tests.
   - Added automated build loop workflows (`/build`, `/review`, `/playtest`) and single-file Gemini planner pack generator (`scripts/pack.py`).
   - Synced all cumulative handoff files (`PROJECT_HANDOFF.md`, `docs/HOW_IT_WORKS.md`, `.handoff-builder.md`, `.handoff-planner.md`) to the unified baseline with 284 passing offline tests across 11 test suites.
+- **Decision 020 (Milestone 5A)**: One-Click "Copy Quote + Citation" Button & KNOWN_ISSUES.md Refresh
+  - Added one-click `.btn-copy-quote-citation` action button to each verbatim quote card in the Cornell Notes evidence board.
+  - Deterministically formats verbatim quotes paired with full source citation honoring the currently active citation style (Standard, APA 7th ed with `(n.d.)`, MLA 9th ed with `Accessed <date>`) and bracketed official jurisdiction tags (`[LA City Official]`, `[LA Local City Official]`, etc.).
+  - Added clipboard API support with fallback to hidden textarea copy execution, plus 1.5-second `Copied! ✓` temporary feedback (`Copy Failed` on rejection).
+  - Enforced zero date fabrication across `frontend/app.js`: eliminated fallback today's date in `primaryReportSources` and scoped test assertions to prevent date invention.
+  - Refreshed `KNOWN_ISSUES.md`: updated header baseline to commit `a3775fa` and 284+ passing tests, and replaced shipped 4C/4D items with post-Phase-4 backlog candidates (Evidence/Jurisdiction Filtering, Portable Workspace JSON Export/Import, Contradiction & Material Qualification Callouts).
+  - Shipped with 285 passing tests across 11 test suites.
 
 ---
 
@@ -236,6 +243,12 @@ All contributors and agents must uphold these non-negotiable rules:
     - Added `test_selector_inventory` ensuring exact 1:1 parity between `index.html` and `app.js` element IDs.
     - Integrated build loop workflows and `scripts/pack.py` planner pack generator.
     - Verified full 284 offline test suite passes (100% passing).
+17. **Milestone 018 (Milestone 5A)**: One-Click "Copy Quote + Citation" & KNOWN_ISSUES.md Refresh
+    - Added one-click `Copy Quote + Citation` action button next to text fragment links in Cornell Notes evidence cards.
+    - Deterministic quote + citation pairing honoring Standard, APA, and MLA styles with zero date/author invention.
+    - Clipboard API integration with hidden textarea fallback and temporary `Copied! ✓` feedback.
+    - Updated `KNOWN_ISSUES.md` baseline and roadmap backlog.
+    - Shipped with 285 passing tests across 11 test suites.
 
 
 

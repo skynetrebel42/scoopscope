@@ -16,6 +16,21 @@
         }
         .test-pass { color: #3ecfb4; }
         .test-fail { color: #eb5757; }
+        .btn-copy-quote-citation {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid #334155;
+            border-radius: 4px;
+            color: #94a3b8;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.25rem 0.6rem;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .btn-copy-quote-citation:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #f8fafc;
+        }
     </style>
 </head>
 <body>
@@ -1673,6 +1688,132 @@
             const exactLink = quoteBullet.querySelector(".link-find-exact");
             assert(exactLink !== null, "Find exact line link (.link-find-exact) rendered");
             assert(exactLink.href.includes("#:~:text="), "Find exact line link has W3C text fragment deep link");
+
+            // Milestone 5A: One-Click Copy Quote + Citation Button
+            const copyQuoteBtn = quoteBullet.querySelector(".btn-copy-quote-citation");
+            assert(copyQuoteBtn !== null, "Copy Quote + Citation button (.btn-copy-quote-citation) rendered on quote card");
+            assert(copyQuoteBtn.textContent.trim() === "Copy Quote + Citation", "Initial button text is 'Copy Quote + Citation'");
+
+            // Test copy under standard, apa, and mla styles
+            assert(typeof window.formatQuoteWithCitation === "function", "window.formatQuoteWithCitation helper exposed");
+
+            // Deterministic mock for clipboard operations
+            let clipboardCalls = [];
+            let clipboardShouldSucceed = true;
+            const origCopy = window.copyTextToClipboard;
+            window.copyTextToClipboard = async (text) => {
+                clipboardCalls.push(text);
+                window.__lastCopiedText = text;
+                return clipboardShouldSucceed;
+            };
+
+            // Standard style test
+            window.__ScoopScope.activeCitationStyle = "standard";
+            clipboardShouldSucceed = true;
+            copyQuoteBtn.click();
+            await Promise.resolve();
+            await new Promise(r => setTimeout(r, 0));
+            assert(copyQuoteBtn.textContent.trim() === "Copied! ✓", "Button text updates to 'Copied! ✓' on click");
+            assert(clipboardCalls.length > 0, "Clipboard copy function was invoked");
+            const copiedStandard = clipboardCalls[clipboardCalls.length - 1];
+            assert(copiedStandard.includes("European food safety authorities"), "Copied text contains verbatim quote");
+            assert(copiedStandard.startsWith('"') && copiedStandard.includes('" — **ec.europa.eu**'), "Standard citation copied with bold domain format");
+            assert(copiedStandard.includes("[City of LA Official]"), "Standard citation includes official jurisdiction tag");
+
+            // APA style test
+            window.__ScoopScope.activeCitationStyle = "apa";
+            copyQuoteBtn.click();
+            await Promise.resolve();
+            await new Promise(r => setTimeout(r, 0));
+            assert(copyQuoteBtn.textContent.trim() === "Copied! ✓", "Button text updates to 'Copied! ✓' on APA copy");
+            const copiedApa = clipboardCalls[clipboardCalls.length - 1];
+            assert(copiedApa.includes("(2024)") && copiedApa.includes("*ec.europa.eu*"), "APA citation format matches with publication year");
+            assert(copiedApa.includes("[City of LA Official]"), "APA citation includes jurisdiction tag");
+
+            // MLA style test
+            window.__ScoopScope.activeCitationStyle = "mla";
+            copyQuoteBtn.click();
+            await Promise.resolve();
+            await new Promise(r => setTimeout(r, 0));
+            assert(copyQuoteBtn.textContent.trim() === "Copied! ✓", "Button text updates to 'Copied! ✓' on MLA copy");
+            const copiedMla = clipboardCalls[clipboardCalls.length - 1];
+            assert(copiedMla.includes("Accessed") && copiedMla.includes("*ec.europa.eu*"), "MLA citation format matches with Accessed date");
+            assert(copiedMla.includes("[City of LA Official]"), "MLA citation includes jurisdiction tag");
+
+            // Honest failure feedback when copying rejects
+            clipboardShouldSucceed = false;
+            copyQuoteBtn.click();
+            await Promise.resolve();
+            await new Promise(r => setTimeout(r, 0));
+            assert(copyQuoteBtn.textContent.trim() === "Copy Failed", "Button displays honest 'Copy Failed' feedback when copying rejects");
+            assert(copyQuoteBtn.classList.contains("copy-failed"), "Button has 'copy-failed' CSS class on failure");
+
+            // Restore clipboard helper
+            window.copyTextToClipboard = origCopy;
+
+            // Unit tests for formatQuoteWithCitation (with (n.d.) fallback and newline sanitization)
+            const sampleSourceNoDateJuris = {
+                url: "https://lacounty.gov/housing-moratorium",
+                domain: "lacounty.gov",
+                title: "County Housing Notice",
+                publication_date: null,
+                retrieval_date: "2024-10-20",
+                jurisdiction_tag: "LA County Official"
+            };
+            const multilineQuote = "The County \\n \\n established an emergency moratorium \n\n on evictions.";
+            const apaQuoteNoDate = window.formatQuoteWithCitation(multilineQuote, sampleSourceNoDateJuris, "apa");
+            assert(apaQuoteNoDate.includes("(n.d.)"), "formatQuoteWithCitation uses (n.d.) fallback for missing date in APA");
+            assert(!apaQuoteNoDate.includes("\\n") && !apaQuoteNoDate.includes("\n"), "formatQuoteWithCitation sanitizes raw \\n and newlines into clean spaces");
+            assert(apaQuoteNoDate.includes("[LA County Official]"), "formatQuoteWithCitation preserves jurisdiction tag");
+
+            // Focused test: Zero date invention when retrieval timestamp is missing
+            const sourceNoDates = {
+                url: "https://lacity.gov/trees",
+                domain: "lacity.gov",
+                title: "Trees",
+                publication_date: null,
+                retrieval_date: null,
+            };
+            const quoteNoDates = window.formatQuoteWithCitation("Sample passage", sourceNoDates, "apa");
+            assert(quoteNoDates.includes("(n.d.)"), "Missing publication and retrieval date produces strict (n.d.) without inventing current year");
+            assert(!quoteNoDates.includes(new Date().getFullYear().toString()), "Missing date does not invent current year in citation");
+
+            // Focused test: Source-ID prioritization over URL fallback match
+            const multiSourceData = {
+                retrieved_sources: [
+                    { source_id: "src_wrong", initial_url: "https://lacity.gov/doc", title: "Wrong Title From URL Match" },
+                    { source_id: "src_correct", initial_url: "https://lacity.gov/other", title: "Correct Title From Source ID" }
+                ],
+                candidate_passages: [
+                    {
+                        passage_id: "psg_attr_1",
+                        source_id: "src_correct",
+                        source_url: "https://lacity.gov/doc",
+                        exact_passage: "Verified passage with exact source ID priority.",
+                        publication_date: "2024-01-01"
+                    }
+                ],
+                search_hits: [],
+                suggested_next_queries: []
+            };
+            const dummyClaim = { id: "claim_attr_prio", normalized_assertion: "Attribution priority test claim" };
+            const attrContainer = document.createElement("div");
+            window.__ScoopScope.renderResearchResults(attrContainer, multiSourceData, dummyClaim);
+            const prioCopyBtn = attrContainer.querySelector(".btn-copy-quote-citation");
+            assert(prioCopyBtn !== null, "Copy button rendered in attribution priority container");
+
+            let prioCaptured = "";
+            window.copyTextToClipboard = async (text) => {
+                prioCaptured = text;
+                return true;
+            };
+            prioCopyBtn.click();
+            await Promise.resolve();
+            await new Promise(r => setTimeout(r, 0));
+            assert(prioCaptured.includes("Correct Title From Source ID"), "Attribution prioritizes exact source_id match over URL fallback");
+            assert(!prioCaptured.includes("Wrong Title From URL Match"), "URL fallback match is ignored when exact source_id is present");
+            window.copyTextToClipboard = origCopy;
+
 
             // More Toggle & Full Context
             const moreBtn = quoteBullet.querySelector(".btn-more-toggle");
